@@ -1,0 +1,75 @@
+import 'dart:convert';
+
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../models/challenge.dart';
+import '../models/mock_user.dart';
+import '../models/wallet.dart';
+import 'storage_keys.dart';
+
+class LocalStorageRepository {
+  final SharedPreferences _prefs;
+
+  const LocalStorageRepository(this._prefs);
+
+  Future<MockUser?> loadMockUser() async {
+    final raw = _prefs.getString(StorageKeys.mockUser);
+    if (raw == null) return null;
+    return MockUser.fromJson(json.decode(raw) as Map<String, dynamic>);
+  }
+
+  Future<void> saveMockUser(MockUser user) async {
+    await _prefs.setString(
+      StorageKeys.mockUser,
+      json.encode(user.toJson()),
+    );
+  }
+
+  Future<Wallet> loadWallet() async {
+    final raw = _prefs.getString(StorageKeys.wallet);
+    if (raw == null) return Wallet.empty;
+    return Wallet.fromJson(json.decode(raw) as Map<String, dynamic>);
+  }
+
+  Future<void> saveWallet(Wallet wallet) async {
+    await _prefs.setString(
+      StorageKeys.wallet,
+      json.encode(wallet.toJson()),
+    );
+  }
+
+  Future<Challenge?> loadActiveChallenge() async {
+    final raw = _prefs.getString(StorageKeys.activeChallenge);
+    if (raw == null) return null;
+    return Challenge.fromJson(json.decode(raw) as Map<String, dynamic>);
+  }
+
+  Future<void> saveActiveChallenge(Challenge? challenge) async {
+    if (challenge == null) {
+      await _prefs.remove(StorageKeys.activeChallenge);
+      return;
+    }
+    await _prefs.setString(
+      StorageKeys.activeChallenge,
+      json.encode(challenge.toJson()),
+    );
+  }
+
+  Future<Challenge?> loadLastCompletedChallenge() async {
+    final raw = _prefs.getString(StorageKeys.lastCompletedChallenge);
+    if (raw == null) return null;
+    return Challenge.fromJson(json.decode(raw) as Map<String, dynamic>);
+  }
+
+  Future<void> saveLastCompletedChallenge(Challenge? challenge) async {
+    if (challenge == null) {
+      await _prefs.remove(StorageKeys.lastCompletedChallenge);
+      return;
+    }
+    await _prefs.setString(
+      StorageKeys.lastCompletedChallenge,
+      json.encode(challenge.toJson()),
+    );
+  }
+}
+
