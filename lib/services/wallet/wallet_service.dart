@@ -1,4 +1,3 @@
-import '../../core/id_generator.dart';
 import '../../core/money.dart';
 import '../../data/models/challenge.dart';
 import '../../data/models/wallet.dart';
@@ -80,6 +79,52 @@ class WalletService {
 
   Future<void> markNoop() async {
     // Placeholder to match future wallet flows.
+  }
+
+  /// Extra days added to an active challenge — additional deposit locked.
+  Future<void> recordAdditionalDepositLock({
+    required Money amount,
+    required String challengeId,
+  }) async {
+    final wallet = await _load();
+    await _save(
+      wallet.copyWith(
+        totalDeposited: wallet.totalDeposited + amount,
+        transactions: [
+          WalletTransaction.create(
+            type: 'deposit_locked',
+            description: 'Additional days locked (challenge $challengeId)',
+            amount: amount,
+            createdAt: DateTime.now(),
+          ),
+          ...wallet.transactions,
+        ],
+      ),
+    );
+  }
+
+  /// User restarted the goal: refundable balance in the challenge is forfeited to the platform.
+  Future<void> recordChallengeRestartForfeit({required Challenge challenge}) async {
+    final wallet = await _load();
+    final forfeited = challenge.refundableRemainingAmount;
+    if (forfeited.cents <= 0) {
+      return;
+    }
+    await _save(
+      wallet.copyWith(
+        totalForfeited: wallet.totalForfeited + forfeited,
+        totalPlatformKept: wallet.totalPlatformKept + forfeited,
+        transactions: [
+          WalletTransaction.create(
+            type: 'restart_forfeit',
+            description: 'Goal restarted — forfeited ${forfeited.format()}',
+            amount: forfeited,
+            createdAt: DateTime.now(),
+          ),
+          ...wallet.transactions,
+        ],
+      ),
+    );
   }
 }
 

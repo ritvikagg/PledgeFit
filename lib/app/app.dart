@@ -12,7 +12,7 @@ class StartupApp extends ConsumerWidget {
     final router = ref.watch(appRouterProvider);
 
     return MaterialApp.router(
-      title: 'Deposit Steps MVP',
+      title: 'PledgeFit',
       theme: appTheme,
       debugShowCheckedModeBanner: false,
       routerConfig: router,

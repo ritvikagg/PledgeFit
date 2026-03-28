@@ -4,7 +4,6 @@ import '../data/models/challenge.dart';
 import '../data/models/daily_entry.dart';
 import '../data/models/mock_user.dart';
 import '../data/models/wallet.dart';
-import '../data/models/wallet_transaction.dart';
 
 /// Seed/mock data for development.
 ///
@@ -56,6 +55,7 @@ class MockSeed {
           date: date,
           steps: steps,
           hitDailyGoal: hit,
+          stepGoalForDay: dailyStepGoal,
           depositAllocatedForDayDollars: depositPerDayDollars,
           dailyPenaltyAmountCents: isPast ? penaltyCents : 0,
           editable: date == MvpDateUtils.dateOnly(DateTime.now()),

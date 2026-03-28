@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/challenge.dart';
+import '../models/connected_devices_state.dart';
 import '../models/mock_user.dart';
+import '../models/user_profile.dart';
 import '../models/wallet.dart';
 import 'storage_keys.dart';
 
@@ -69,6 +71,34 @@ class LocalStorageRepository {
     await _prefs.setString(
       StorageKeys.lastCompletedChallenge,
       json.encode(challenge.toJson()),
+    );
+  }
+
+  Future<UserProfile> loadUserProfile() async {
+    final raw = _prefs.getString(StorageKeys.userProfile);
+    if (raw == null) return UserProfile.empty;
+    return UserProfile.fromJson(json.decode(raw) as Map<String, dynamic>);
+  }
+
+  Future<void> saveUserProfile(UserProfile profile) async {
+    await _prefs.setString(
+      StorageKeys.userProfile,
+      json.encode(profile.toJson()),
+    );
+  }
+
+  Future<ConnectedDevicesState> loadConnectedDevices() async {
+    final raw = _prefs.getString(StorageKeys.connectedDevices);
+    if (raw == null) return ConnectedDevicesState.none;
+    return ConnectedDevicesState.fromJson(
+      json.decode(raw) as Map<String, dynamic>,
+    );
+  }
+
+  Future<void> saveConnectedDevices(ConnectedDevicesState state) async {
+    await _prefs.setString(
+      StorageKeys.connectedDevices,
+      json.encode(state.toJson()),
     );
   }
 }

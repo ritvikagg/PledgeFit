@@ -10,6 +10,8 @@ class DailyEntry {
   final DateTime date; // date-only
   final int steps;
   final bool hitDailyGoal;
+  /// Step goal that applied when this day was evaluated (supports mid-challenge increases).
+  final int stepGoalForDay;
   final int depositAllocatedForDayDollars;
   final int dailyPenaltyAmountCents;
   final bool editable;
@@ -20,6 +22,7 @@ class DailyEntry {
     required this.date,
     required this.steps,
     required this.hitDailyGoal,
+    required this.stepGoalForDay,
     required this.depositAllocatedForDayDollars,
     required this.dailyPenaltyAmountCents,
     required this.editable,
@@ -34,6 +37,7 @@ class DailyEntry {
     DateTime? date,
     int? steps,
     bool? hitDailyGoal,
+    int? stepGoalForDay,
     int? depositAllocatedForDayDollars,
     int? dailyPenaltyAmountCents,
     bool? editable,
@@ -44,6 +48,7 @@ class DailyEntry {
       date: date ?? this.date,
       steps: steps ?? this.steps,
       hitDailyGoal: hitDailyGoal ?? this.hitDailyGoal,
+      stepGoalForDay: stepGoalForDay ?? this.stepGoalForDay,
       depositAllocatedForDayDollars:
           depositAllocatedForDayDollars ?? this.depositAllocatedForDayDollars,
       dailyPenaltyAmountCents:
@@ -58,6 +63,7 @@ class DailyEntry {
         'date': date.toIso8601String(),
         'steps': steps,
         'hitDailyGoal': hitDailyGoal,
+        'stepGoalForDay': stepGoalForDay,
         'depositAllocatedForDayDollars': depositAllocatedForDayDollars,
         'dailyPenaltyAmountCents': dailyPenaltyAmountCents,
         'editable': editable,
@@ -70,6 +76,7 @@ class DailyEntry {
       date: MvpDateUtils.dateOnly(DateTime.parse(json['date'] as String)),
       steps: json['steps'] as int,
       hitDailyGoal: json['hitDailyGoal'] as bool,
+      stepGoalForDay: json['stepGoalForDay'] as int? ?? 8000,
       depositAllocatedForDayDollars:
           json['depositAllocatedForDayDollars'] as int,
       dailyPenaltyAmountCents: json['dailyPenaltyAmountCents'] as int,

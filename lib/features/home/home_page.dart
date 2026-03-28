@@ -2,13 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/presentation.dart';
 import '../../app_controller/app_controller.dart';
 import '../../core/date_utils.dart';
-import '../../core/ui/money_text.dart';
-import '../../core/ui/metric_row.dart';
-import '../../core/ui/primary_button.dart';
-import '../../core/ui/section_card.dart';
+import '../../core/formatters.dart';
+import '../../core/money.dart';
+import '../../core/theme/pledge_colors.dart';
+import '../../core/ui/kit/circular_goal_ring.dart';
+import '../../core/ui/kit/metric_tile.dart';
+import '../../core/ui/kit/pledge_buttons.dart';
 import '../../data/models/challenge.dart';
+import '../../data/models/daily_entry.dart';
+import '../../data/models/wallet.dart';
 
 class HomePage extends ConsumerWidget {
   const HomePage({super.key});
@@ -16,108 +21,100 @@ class HomePage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final appState = ref.watch(appControllerProvider);
+    final displayChallenge = ref.watch(displayChallengeProvider);
+    final displayWallet = ref.watch(displayWalletProvider);
+    final isDemo = ref.watch(isUiDemoChallengeProvider);
 
     return appState.when(
       loading: () => const Scaffold(
+        backgroundColor: PledgeColors.pageBg,
         body: Center(child: CircularProgressIndicator()),
       ),
       error: (e, _) => Scaffold(
+        backgroundColor: PledgeColors.pageBg,
         body: Center(child: Text('Error: $e')),
       ),
       data: (model) {
-        final active = model.activeChallenge;
         final nowDate = MvpDateUtils.dateOnly(DateTime.now());
 
-        return Scaffold(
-          appBar: AppBar(
-            title: const Text('Dashboard'),
-            actions: [
-              IconButton(
-                tooltip: 'Wallet',
-                onPressed: () => context.go('/wallet'),
-                icon: const Icon(Icons.account_balance_wallet_outlined),
-              )
-            ],
-          ),
-          body: SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.only(bottom: 24),
-              children: [
-                if (active != null)
-                  _ActiveChallengeCard(
-                    model: model,
-                    activeChallenge: active,
-                    nowDate: nowDate,
-                  )
-                else
-                  _EmptyStateCard(
-                    onCreate: () => context.go('/create'),
-                  ),
-                const SizedBox(height: 10),
-                _FooterNote(),
-              ],
-            ),
-          ),
+        if (displayChallenge == null) {
+          return _EmptyHome(
+            onCreate: () => context.go('/goal'),
+          );
+        }
+
+        return _HomeBody(
+          challenge: displayChallenge,
+          wallet: displayWallet,
+          nowDate: nowDate,
+          isDemo: isDemo,
         );
       },
     );
   }
 }
 
-class _FooterNote extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Text(
-        'No payments or health integrations for this MVP. Everything is local and mock-only.',
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Colors.black54,
-            ),
-      ),
-    );
-  }
-}
+class _EmptyHome extends StatelessWidget {
+  const _EmptyHome({required this.onCreate});
 
-class _EmptyStateCard extends StatelessWidget {
   final VoidCallback onCreate;
 
-  const _EmptyStateCard({required this.onCreate});
-
   @override
   Widget build(BuildContext context) {
-    return SectionCard(
-      title: 'No active challenge',
-      subtitle: const Text('Create one to start building streak-proof accountability.'),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: 4),
-          PrimaryButton(
-            label: 'Create a Challenge',
-            onPressed: onCreate,
+    return Scaffold(
+      backgroundColor: PledgeColors.pageBg,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 48),
+              Text(
+                'No active goal yet',
+                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: PledgeColors.ink,
+                    ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Lock a mock deposit, set your step targets, and earn it back by hitting your total goal. Miss a daily target and part of that day’s stake is forfeited.',
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: PledgeColors.inkMuted,
+                      height: 1.45,
+                    ),
+              ),
+              const Spacer(),
+              PledgePrimaryButton(
+                label: 'Set your first goal',
+                icon: Icons.flag_rounded,
+                onPressed: onCreate,
+              ),
+              const SizedBox(height: 24),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
-class _ActiveChallengeCard extends StatelessWidget {
-  final AppModel model;
-  final Challenge activeChallenge;
-  final DateTime nowDate;
-
-  const _ActiveChallengeCard({
-    required this.model,
-    required this.activeChallenge,
+class _HomeBody extends StatelessWidget {
+  const _HomeBody({
+    required this.challenge,
+    required this.wallet,
     required this.nowDate,
+    required this.isDemo,
   });
+
+  final Challenge challenge;
+  final Wallet wallet;
+  final DateTime nowDate;
+  final bool isDemo;
 
   @override
   Widget build(BuildContext context) {
-    final challenge = activeChallenge;
-
     final currentDay = MvpDateUtils.dayNumber(challenge.startDate, nowDate)
         .clamp(1, challenge.durationDays);
 
@@ -126,123 +123,264 @@ class _ActiveChallengeCard extends StatelessWidget {
       orElse: () => challenge.dailyEntries.first,
     );
 
-    final totalProgress = (challenge.totalStepsAccumulated / challenge.totalStepGoal)
-        .clamp(0, 1)
+    final totalPct = (challenge.totalStepsAccumulated / challenge.totalStepGoal)
+        .clamp(0.0, 1.0)
         .toDouble();
+    final dailyPct =
+        (todaysEntry.steps / todaysEntry.stepGoalForDay)
+            .clamp(0.0, 1.0)
+            .toDouble();
 
-    final dailyProgress =
-        (todaysEntry.steps / challenge.dailyStepGoal).clamp(0, 1).toDouble();
+    final remaining =
+        (challenge.totalStepGoal - challenge.totalStepsAccumulated).clamp(0, challenge.totalStepGoal);
 
-    return SectionCard(
-      title: 'Active Step Challenge',
-      subtitle: Text(
-        'Day $currentDay of ${challenge.durationDays} • Ends on ${challenge.endDate.month}/${challenge.endDate.day}',
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: 2),
-          Text(
-            'Progress to total goal',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-          const SizedBox(height: 8),
-          LinearProgressIndicator(value: totalProgress),
-          const SizedBox(height: 10),
-          Text(
-            '${challenge.totalStepsAccumulated.toString()} / ${challenge.totalStepGoal} steps',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: 18),
-          Text(
-            'Today’s steps',
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-          const SizedBox(height: 8),
-          LinearProgressIndicator(value: dailyProgress),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Text(
-                '${todaysEntry.steps} / ${challenge.dailyStepGoal} steps',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              if (!todaysEntry.stepsEntered)
-                Padding(
-                  padding: const EdgeInsets.only(left: 8),
-                  child: Text(
-                    '(not submitted yet)',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Colors.black54,
-                        ),
+    final missDays = challenge.dailyEntries
+        .where((e) =>
+            e.evaluationState == DailyEntryEvaluationState.evaluated &&
+            e.dailyPenaltyAmountCents > 0)
+        .length;
+
+    final penaltyPerMiss =
+        challenge.depositPerDay.cents ~/ 5; // 20% of daily deposit (cents)
+
+    return Scaffold(
+      backgroundColor: PledgeColors.pageBg,
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
+          children: [
+            if (isDemo)
+              Container(
+                margin: const EdgeInsets.only(bottom: 14),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: PledgeColors.successGreenBg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: PledgeColors.successGreen.withValues(alpha: 0.25),
                   ),
                 ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          const Divider(),
-          MetricRow(
-            label: 'Total deposited',
-            value: MoneyText(
-              model.wallet.totalDeposited,
-              bold: true,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyLarge
-                  ?.copyWith(fontWeight: FontWeight.w700),
-            ),
-          ),
-          MetricRow(
-            label: 'Penalties so far',
-            value: MoneyText(
-              challenge.totalPenaltyAmount,
-              style: Theme.of(context).textTheme.bodyMedium,
-              bold: true,
-            ),
-          ),
-          MetricRow(
-            label: 'Refundable remaining',
-            value: MoneyText(
-              challenge.refundableRemainingAmount,
-              style: Theme.of(context).textTheme.bodyMedium,
-              bold: true,
-            ),
-          ),
-          MetricRow(
-            label: 'Wallet available balance',
-            value: MoneyText(
-              model.wallet.availableBalance,
-              style: Theme.of(context).textTheme.bodyMedium,
-              bold: true,
-            ),
-          ),
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              Expanded(
-                child: PrimaryButton(
-                  label: todaysEntry.editable ? 'Enter Today’s Steps' : 'View Progress',
-                  onPressed: todaysEntry.editable
-                      ? () => context.go('/daily')
-                      : () => context.go('/progress'),
+                child: Row(
+                  children: [
+                    Icon(Icons.auto_awesome,
+                        size: 18, color: PledgeColors.successGreen),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Investor demo — mock data. Create a challenge to use your own numbers.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: PledgeColors.ink,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => context.go('/progress'),
-                  child: const Text('Challenge Progress'),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Day $currentDay of ${challenge.durationDays}',
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                              color: PledgeColors.inkMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Active Challenge',
+                        style:
+                            Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: PledgeColors.ink,
+                                ),
+                      ),
+                    ],
+                  ),
                 ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: PledgeColors.card,
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: PledgeColors.border),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.04),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: const BoxDecoration(
+                          color: PledgeColors.successGreen,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        challenge.refundableRemainingAmount.format(),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: PledgeColors.ink,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 22),
+            Center(
+              child: CircularGoalRing(
+                progress: totalPct,
+                centerTitle: '${(totalPct * 100).round()}%',
+                centerSubtitle:
+                    '${formatWithCommas(challenge.totalStepsAccumulated)} / ${formatWithCommas(challenge.totalStepGoal)}',
               ),
-            ],
-          ),
-        ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.trending_up_rounded,
+                    size: 18, color: PledgeColors.primaryGreen),
+                const SizedBox(width: 6),
+                Text(
+                  '${formatWithCommas(remaining)} steps remaining',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: PledgeColors.inkMuted,
+                      ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 28),
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: PledgeColors.card,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFF3F4F6)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.04),
+                    blurRadius: 16,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        'Today\'s Steps',
+                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${formatWithCommas(todaysEntry.steps)} / ${formatWithCommas(todaysEntry.stepGoalForDay)}',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: PledgeColors.inkMuted,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(999),
+                    child: LinearProgressIndicator(
+                      value: dailyPct,
+                      minHeight: 10,
+                      backgroundColor: const Color(0xFFE5E7EB),
+                      color: PledgeColors.primaryGreen,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      Text(
+                        '${(dailyPct * 100).round()}% complete',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: PledgeColors.inkMuted,
+                            ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        'Miss = -${Money(penaltyPerMiss).format()} penalty',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: PledgeColors.penaltyAmber,
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            GridView.count(
+              crossAxisCount: 2,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+              childAspectRatio: 1.15,
+              children: [
+                PledgeMetricTile(
+                  label: 'Total deposit',
+                  value: challenge.totalDeposit.format(),
+                ),
+                PledgeMetricTile(
+                  label: 'Refundable',
+                  value: challenge.refundableRemainingAmount.format(),
+                  valueColor: PledgeColors.successGreen,
+                ),
+                PledgeMetricTile(
+                  label: 'Penalties',
+                  value: challenge.totalPenaltyAmount.format(),
+                  valueColor: PledgeColors.penaltyAmber,
+                  subtitle: missDays > 0 ? '$missDays days with forfeiture' : null,
+                ),
+                PledgeMetricTile(
+                  label: 'Wallet',
+                  value: wallet.availableBalance.format(),
+                  valueColor: PledgeColors.successGreen,
+                ),
+              ],
+            ),
+            const SizedBox(height: 22),
+            PledgePrimaryButton(
+              label: todaysEntry.editable ? 'Enter Today\'s Steps' : 'View progress',
+              icon: Icons.directions_walk_rounded,
+              onPressed: () {
+                if (todaysEntry.editable) {
+                  context.push('/daily');
+                } else {
+                  context.go('/progress');
+                }
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
 }
-

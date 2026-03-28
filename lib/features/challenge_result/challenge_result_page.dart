@@ -3,9 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app_controller/app_controller.dart';
-import '../../core/ui/money_text.dart';
-import '../../core/ui/primary_button.dart';
-import '../../core/ui/section_card.dart';
+import '../../core/formatters.dart';
+import '../../core/theme/pledge_colors.dart';
+import '../../core/ui/kit/circular_goal_ring.dart';
+import '../../core/ui/kit/pledge_buttons.dart';
 import '../../data/models/challenge.dart';
 
 class ChallengeResultPage extends ConsumerStatefulWidget {
@@ -31,92 +32,175 @@ class _ChallengeResultPageState extends ConsumerState<ChallengeResultPage> {
 
     return appState.when(
       loading: () => const Scaffold(
+        backgroundColor: PledgeColors.pageBg,
         body: Center(child: CircularProgressIndicator()),
       ),
-      error: (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
+      error: (e, _) => Scaffold(
+        backgroundColor: PledgeColors.pageBg,
+        body: Center(child: Text('Error: $e')),
+      ),
       data: (model) {
         final result = model.lastCompletedChallenge;
         if (result == null) {
           return Scaffold(
-            appBar: AppBar(title: const Text('Challenge Result')),
+            backgroundColor: PledgeColors.pageBg,
+            appBar: AppBar(
+              title: const Text('Result'),
+              backgroundColor: PledgeColors.pageBg,
+            ),
             body: Center(
-              child: PrimaryButton(
-                label: 'Go to Dashboard',
-                onPressed: () => context.go('/home'),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: PledgePrimaryButton(
+                  label: 'Back to home',
+                  onPressed: () => context.go('/home'),
+                ),
               ),
             ),
           );
         }
 
         final isSuccess = result.status == ChallengeStatus.success;
-        final title = isSuccess ? 'Success' : 'Failed';
+        final pct = (result.totalStepsAccumulated / result.totalStepGoal)
+            .clamp(0.0, 1.0)
+            .toDouble();
 
         return Scaffold(
-          appBar: AppBar(
-            title: const Text('Challenge Result'),
-          ),
-          body: SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.only(bottom: 24),
-              children: [
-                SectionCard(
-                  title: title,
-                  subtitle: Text(
-                    isSuccess
-                        ? 'You hit the TOTAL step goal by the end.'
-                        : 'You did not reach the TOTAL step goal by the end.',
+          backgroundColor: PledgeColors.pageBg,
+          body: CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(24, 52, 24, 28),
+                  decoration: BoxDecoration(
+                    color: isSuccess
+                        ? PledgeColors.successGreenBg
+                        : PledgeColors.failureWash,
                   ),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const SizedBox(height: 2),
+                      Container(
+                        width: 64,
+                        height: 64,
+                        decoration: BoxDecoration(
+                          color: isSuccess
+                              ? PledgeColors.successGreen
+                              : PledgeColors.dangerRose,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          isSuccess ? Icons.check_rounded : Icons.close_rounded,
+                          color: Colors.white,
+                          size: 36,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
                       Text(
-                        '${result.totalStepsAccumulated} / ${result.totalStepGoal} steps',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        isSuccess ? 'Challenge complete' : 'Challenge failed',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                               fontWeight: FontWeight.w800,
+                              color: PledgeColors.ink,
                             ),
                       ),
-                      const SizedBox(height: 14),
-                      const Divider(),
-                      const SizedBox(height: 12),
-                      _BreakdownRow(
-                        label: 'Original deposit',
-                        value: MoneyText(result.totalDeposit, bold: true),
-                      ),
-                      _BreakdownRow(
-                        label: 'Total daily penalties (lost)',
-                        value: MoneyText(result.totalPenaltyAmount, bold: true),
-                      ),
-                      _BreakdownRow(
-                        label: 'Amount returned to wallet',
-                        value: MoneyText(result.returnedAmount, bold: true),
-                      ),
-                      _BreakdownRow(
-                        label: 'Amount kept by platform',
-                        value: MoneyText(result.platformKeptAmount, bold: true),
-                      ),
-                      const SizedBox(height: 14),
-                      const Divider(),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 8),
                       Text(
-                        'Key distinction: daily penalties are separate from total-goal completion. You can succeed overall even with daily misses, as long as your TOTAL steps reach the target.',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.black54,
+                        isSuccess
+                            ? 'You hit your total step goal. Remaining refundable balance returns to your wallet (after daily forfeitures).'
+                            : 'You didn\'t reach the total step goal. Remaining locked stake is kept by the platform.',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: PledgeColors.inkMuted,
+                              height: 1.4,
                             ),
+                      ),
+                      const SizedBox(height: 20),
+                      CircularGoalRing(
+                        size: 176,
+                        strokeWidth: 12,
+                        progress: pct,
+                        centerTitle: '${(pct * 100).round()}%',
+                        centerSubtitle:
+                            '${formatWithCommas(result.totalStepsAccumulated)} steps',
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 10),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: PrimaryButton(
-                    label: 'Start a new challenge',
-                    onPressed: () => context.go('/create'),
-                  ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: PledgeColors.card,
+                        borderRadius: BorderRadius.circular(22),
+                        border: Border.all(color: const Color(0xFFF3F4F6)),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.04),
+                            blurRadius: 16,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Financial breakdown',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 18),
+                          _Row(
+                            label: 'Total steps',
+                            value: formatWithCommas(result.totalStepsAccumulated),
+                          ),
+                          _Row(
+                            label: 'Step target',
+                            value: formatWithCommas(result.totalStepGoal),
+                          ),
+                          _Row(
+                            label: 'Original deposit',
+                            value: result.totalDeposit.format(),
+                          ),
+                          _Row(
+                            label: 'Penalties incurred',
+                            value: '-${result.totalPenaltyAmount.format()}',
+                            valueColor: PledgeColors.penaltyAmber,
+                          ),
+                          _Row(
+                            label: 'Amount returned',
+                            value: result.returnedAmount.format(),
+                            valueColor: PledgeColors.successGreen,
+                          ),
+                          _Row(
+                            label: 'Kept by platform',
+                            value: result.platformKeptAmount.format(),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    PledgePrimaryButton(
+                      label: 'Start new challenge',
+                      icon: Icons.add_rounded,
+                      onPressed: () => context.go('/goal'),
+                    ),
+                    const SizedBox(height: 12),
+                    PledgeSecondaryButton(
+                      label: 'Back to home',
+                      onPressed: () => context.go('/home'),
+                    ),
+                  ]),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         );
       },
@@ -124,23 +208,41 @@ class _ChallengeResultPageState extends ConsumerState<ChallengeResultPage> {
   }
 }
 
-class _BreakdownRow extends StatelessWidget {
-  final String label;
-  final Widget value;
+class _Row extends StatelessWidget {
+  const _Row({
+    required this.label,
+    required this.value,
+    this.valueColor,
+  });
 
-  const _BreakdownRow({required this.label, required this.value});
+  final String label;
+  final String value;
+  final Color? valueColor;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(child: Text(label)),
-          value,
+          Expanded(
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: PledgeColors.inkMuted,
+                  ),
+            ),
+          ),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: valueColor ?? PledgeColors.ink,
+                ),
+          ),
         ],
       ),
     );
   }
 }
-

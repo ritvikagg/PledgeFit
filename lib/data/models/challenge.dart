@@ -137,9 +137,16 @@ class Challenge {
           json['refundableRemainingAmountCents'] as int,
       returnedAmountCents: json['returnedAmountCents'] as int,
       platformKeptAmountCents: json['platformKeptAmountCents'] as int,
-      dailyEntries: (json['dailyEntries'] as List<dynamic>)
-          .map((e) => DailyEntry.fromJson(e as Map<String, dynamic>))
-          .toList(),
+      dailyEntries: () {
+        final dailyGoal = json['dailyStepGoal'] as int;
+        return (json['dailyEntries'] as List<dynamic>).map((e) {
+          final m = Map<String, dynamic>.from(e as Map<String, dynamic>);
+          if (!m.containsKey('stepGoalForDay')) {
+            m['stepGoalForDay'] = dailyGoal;
+          }
+          return DailyEntry.fromJson(m);
+        }).toList();
+      }(),
     );
   }
 
@@ -166,6 +173,7 @@ class Challenge {
           date: date,
           steps: 0,
           hitDailyGoal: false,
+          stepGoalForDay: dailyStepGoal,
           depositAllocatedForDayDollars: depositPerDayDollars,
           dailyPenaltyAmountCents: 0,
           editable: isToday,

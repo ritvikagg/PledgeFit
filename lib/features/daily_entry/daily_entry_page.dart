@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app/presentation.dart';
 import '../../app_controller/app_controller.dart';
 import '../../core/date_utils.dart';
+import '../../core/formatters.dart';
 import '../../core/money.dart';
-import '../../core/ui/money_text.dart';
-import '../../core/ui/primary_button.dart';
-import '../../core/ui/section_card.dart';
-import '../../data/models/daily_entry.dart';
+import '../../core/theme/pledge_colors.dart';
+import '../../core/ui/kit/pledge_buttons.dart';
+import '../../core/ui/kit/pledge_shell.dart';
 import '../../services/challenge/challenge_service.dart';
 
 class DailyEntryPage extends ConsumerStatefulWidget {
@@ -22,7 +23,6 @@ class _DailyEntryPageState extends ConsumerState<DailyEntryPage> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _stepsController;
   bool _isSaving = false;
-
   DailyEntryUpdateResult? _lastUpdate;
 
   @override
@@ -40,27 +40,38 @@ class _DailyEntryPageState extends ConsumerState<DailyEntryPage> {
   @override
   Widget build(BuildContext context) {
     final appState = ref.watch(appControllerProvider);
+    final challenge = ref.watch(displayChallengeProvider);
+    final isDemo = ref.watch(isUiDemoChallengeProvider);
     final nowDate = MvpDateUtils.dateOnly(DateTime.now());
 
     return appState.when(
       loading: () => const Scaffold(
+        backgroundColor: PledgeColors.pageBg,
         body: Center(child: CircularProgressIndicator()),
       ),
-      error: (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
+      error: (e, _) => Scaffold(
+        backgroundColor: PledgeColors.pageBg,
+        body: Center(child: Text('Error: $e')),
+      ),
       data: (model) {
-        final challenge = model.activeChallenge;
         if (challenge == null) {
-          return Scaffold(
-            appBar: AppBar(title: const Text('Daily Steps')),
+          return PledgePageScaffold(
+            title: 'Daily steps',
+            showBack: true,
             body: Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('No active challenge.'),
-                  const SizedBox(height: 12),
-                  PrimaryButton(
-                    label: 'Create a challenge',
-                    onPressed: () => context.go('/create'),
+                  Text(
+                    'No challenge to log',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 16),
+                  PledgePrimaryButton(
+                    label: 'Set your first goal',
+                    onPressed: () => context.go('/goal'),
                   ),
                 ],
               ),
@@ -73,195 +84,309 @@ class _DailyEntryPageState extends ConsumerState<DailyEntryPage> {
           orElse: () => challenge.dailyEntries.first,
         );
 
-        _stepsController.text = _stepsController.text.isEmpty
-            ? todayEntry.steps.toString()
-            : _stepsController.text;
+        final dayNum =
+            MvpDateUtils.dayNumber(challenge.startDate, todayEntry.date);
 
-        final canEdit = todayEntry.editable;
+        if (_stepsController.text.isEmpty) {
+          _stepsController.text = todayEntry.steps.toString();
+        }
 
-        final prevStateText = _buildEntryStateText(todayEntry);
+        final fieldEnabled = isDemo || todayEntry.editable;
+        final canPersist = !isDemo && todayEntry.editable;
+        final parsedSteps = int.tryParse(_stepsController.text.trim()) ?? 0;
+        final previewHit = parsedSteps >= todayEntry.stepGoalForDay;
+        final penaltyIfMiss = Money(challenge.depositPerDay.cents ~/ 5);
+        final dailyPct = (parsedSteps / todayEntry.stepGoalForDay)
+            .clamp(0.0, 1.0)
+            .toDouble();
 
-        return Scaffold(
-          appBar: AppBar(title: const Text('Daily Step Entry')),
-          body: SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.only(bottom: 24),
-              children: [
-                SectionCard(
-                  title: 'Today (${todayEntry.date.month}/${todayEntry.date.day})',
-                  subtitle: Text(
-                    'Daily goal: ${challenge.dailyStepGoal} steps • Deposit per day: ${challenge.depositPerDay.format()}.',
+        final header =
+            'DAY $dayNum · ${formatMonthDay(todayEntry.date).toUpperCase()}';
+
+        return PledgePageScaffold(
+          title: 'Enter Today\'s Steps',
+          showBack: true,
+          padding: EdgeInsets.zero,
+          body: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+            children: [
+              if (isDemo)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: PledgeColors.successGreenBg,
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (!canEdit)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Text(
-                            'Your entry for today is locked.',
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyMedium
-                                ?.copyWith(color: Colors.black54),
-                          ),
+                  child: Text(
+                    'Demo preview — create a challenge to save real entries.',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w600,
                         ),
-                      const SizedBox(height: 6),
-                      Form(
-                        key: _formKey,
-                        child: Column(
-                          children: [
-                            TextFormField(
+                  ),
+                ),
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+                decoration: BoxDecoration(
+                  color: PledgeColors.card,
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: const Color(0xFFF3F4F6)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    children: [
+                      Text(
+                        header,
+                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                              color: PledgeColors.inkMuted,
+                              letterSpacing: 1.1,
+                              fontWeight: FontWeight.w700,
+                            ),
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: TextFormField(
                               controller: _stepsController,
-                              enabled: canEdit,
+                              enabled: fieldEnabled,
                               keyboardType: TextInputType.number,
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .displayMedium
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    color: fieldEnabled
+                                        ? PledgeColors.ink
+                                        : PledgeColors.inkSoft,
+                                  ),
                               decoration: const InputDecoration(
-                                labelText: 'Steps',
-                                hintText: 'Enter steps for today',
+                                border: InputBorder.none,
+                                hintText: '0',
+                                isDense: true,
+                                contentPadding: EdgeInsets.zero,
                               ),
                               validator: (value) {
-                                final parsed =
-                                    int.tryParse(value?.trim() ?? '');
-                                if (parsed == null) return 'Enter steps as a number.';
-                                if (parsed < 0) return 'Steps cannot be negative.';
+                                final p = int.tryParse(value?.trim() ?? '');
+                                if (p == null) return 'Enter a number';
+                                if (p < 0) return 'Invalid';
                                 return null;
                               },
+                              onChanged: (_) => setState(() {}),
                             ),
-                            const SizedBox(height: 14),
-                            PrimaryButton(
-                              label: _isSaving ? 'Saving...' : 'Save Today’s Steps',
-                              onPressed: canEdit
-                                  ? () async {
-                                      final ok =
-                                          _formKey.currentState?.validate() ??
-                                              false;
-                                      if (!ok) return;
-                                      setState(() => _isSaving = true);
-
-                                      final steps =
-                                          int.parse(_stepsController.text.trim());
-                                      try {
-                                        final result = await ref
-                                            .read(appControllerProvider.notifier)
-                                            .saveTodaySteps(steps);
-                                        if (!mounted) return;
-                                        setState(() {
-                                          _isSaving = false;
-                                          _lastUpdate = result;
-                                        });
-
-                                        final nextState =
-                                            ref.read(appControllerProvider);
-                                        final showResult =
-                                            nextState.value?.shouldShowLatestResult ??
-                                                false;
-                                        if (showResult &&
-                                            nextState.value?.activeChallenge ==
-                                                null) {
-                                          context.go('/result');
-                                        }
-                                      } catch (e) {
-                                        setState(() => _isSaving = false);
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(content: Text('$e')),
-                                        );
-                                      }
-                                    }
-                                  : null,
+                          ),
+                          Column(
+                            children: [
+                              IconButton.filledTonal(
+                                onPressed: !fieldEnabled
+                                    ? null
+                                    : () {
+                                        final v = int.tryParse(
+                                                _stepsController.text) ??
+                                            0;
+                                        _stepsController.text =
+                                            (v + 500).toString();
+                                        setState(() {});
+                                      },
+                                icon: const Icon(Icons.keyboard_arrow_up),
+                              ),
+                              IconButton.filledTonal(
+                                onPressed: !fieldEnabled
+                                    ? null
+                                    : () {
+                                        final v = int.tryParse(
+                                                _stepsController.text) ??
+                                            0;
+                                        _stepsController.text =
+                                            (v - 500).clamp(0, 1 << 30).toString();
+                                        setState(() {});
+                                      },
+                                icon: const Icon(Icons.keyboard_arrow_down),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                      Text(
+                        'steps',
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                              color: PledgeColors.inkMuted,
                             ),
-                          ],
+                      ),
+                      const SizedBox(height: 24),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: LinearProgressIndicator(
+                          value: dailyPct,
+                          minHeight: 8,
+                          backgroundColor: const Color(0xFFE5E7EB),
+                          color: PledgeColors.primaryGreen,
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Current evaluation: $prevStateText',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: Colors.black54,
-                            ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Text(
+                            formatWithCommas(parsedSteps),
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: PledgeColors.inkMuted,
+                                ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            'Goal: ${formatWithCommas(todayEntry.stepGoalForDay)}',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: PledgeColors.inkMuted,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 12),
-                      if (_lastUpdate != null)
-                        _UpdateExplanation(update: _lastUpdate!),
+                      const SizedBox(height: 20),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: previewHit
+                              ? PledgeColors.successGreenBg
+                              : PledgeColors.penaltyAmberBg,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Text(
+                          previewHit
+                              ? 'Daily goal met — no penalty today.'
+                              : 'Below goal — ${penaltyIfMiss.format()} would be forfeited for today (20% of ${challenge.depositPerDay.format()}).',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: PledgeColors.ink,
+                              ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 6),
-                _RulesNote(),
+              ),
+              const SizedBox(height: 20),
+              PledgePrimaryButton(
+                label: _isSaving ? 'Saving…' : 'Save today\'s steps',
+                isLoading: _isSaving,
+                onPressed: isDemo
+                    ? () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Create a challenge from the New tab to save real step entries.',
+                            ),
+                          ),
+                        );
+                      }
+                    : !canPersist
+                        ? null
+                        : () async {
+                            final ok =
+                                _formKey.currentState?.validate() ?? false;
+                            if (!ok) return;
+                            setState(() => _isSaving = true);
+                            final steps =
+                                int.parse(_stepsController.text.trim());
+                            try {
+                              final result = await ref
+                                  .read(appControllerProvider.notifier)
+                                  .saveTodaySteps(steps);
+                              if (!context.mounted) return;
+                              setState(() {
+                                _isSaving = false;
+                                _lastUpdate = result;
+                              });
+                              final next = ref.read(appControllerProvider);
+                              final showResult =
+                                  next.value?.shouldShowLatestResult ?? false;
+                              if (showResult &&
+                                  next.value?.activeChallenge == null &&
+                                  context.mounted) {
+                                context.go('/result');
+                              }
+                            } catch (e) {
+                              setState(() => _isSaving = false);
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('$e')),
+                                );
+                              }
+                            }
+                          },
+              ),
+              const SizedBox(height: 12),
+              PledgeSecondaryButton(
+                label: 'Cancel',
+                onPressed: () {
+                  if (context.canPop()) {
+                    context.pop();
+                  } else {
+                    context.go('/home');
+                  }
+                },
+              ),
+              if (_lastUpdate != null && !isDemo) ...[
+                const SizedBox(height: 20),
+                _UpdateExplanation(update: _lastUpdate!),
               ],
-            ),
+            ],
           ),
         );
       },
     );
   }
-
-  String _buildEntryStateText(DailyEntry entry) {
-    if (entry.evaluationState == DailyEntryEvaluationState.pending) {
-      return 'pending (save steps to evaluate penalty)';
-    }
-    return entry.hitDailyGoal
-        ? 'daily goal met (no penalty)'
-        : 'daily goal missed (penalty applies)';
-  }
 }
 
 class _UpdateExplanation extends StatelessWidget {
-  final DailyEntryUpdateResult update;
-
   const _UpdateExplanation({required this.update});
+
+  final DailyEntryUpdateResult update;
 
   @override
   Widget build(BuildContext context) {
     final prev = update.previousEntry;
     final next = update.updatedEntry;
+    String m(int c) => Money(c).format();
 
-    String moneyText(int cents) => Money(cents).format();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Divider(),
-        const SizedBox(height: 8),
-        Text(
-          'What changed',
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Before: ${prev.evaluationState == DailyEntryEvaluationState.pending ? "pending" : (prev.hitDailyGoal ? "met" : "missed")} • Penalty: ${moneyText(prev.dailyPenaltyAmountCents)}',
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'After: ${next.evaluationState == DailyEntryEvaluationState.pending ? "pending" : (next.hitDailyGoal ? "met" : "missed")} • Penalty: ${moneyText(next.dailyPenaltyAmountCents)}',
-        ),
-        const SizedBox(height: 10),
-        Text(
-          'Your challenge refundable balance will update immediately based on today’s penalty.',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Colors.black54,
-              ),
-        ),
-      ],
-    );
-  }
-}
-
-class _RulesNote extends StatelessWidget {
-  const _RulesNote();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Text(
-        'Success is based on the TOTAL step goal by the end of the challenge. Daily penalties still apply if you miss today’s daily step goal.',
-        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Colors.black54,
-            ),
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: PledgeColors.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: PledgeColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'What changed',
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Before: penalty ${m(prev.dailyPenaltyAmountCents)}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          Text(
+            'After: penalty ${m(next.dailyPenaltyAmountCents)}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
       ),
     );
   }
 }
-

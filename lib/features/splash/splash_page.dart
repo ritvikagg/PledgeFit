@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app_controller/app_controller.dart';
+import '../../core/theme/pledge_colors.dart';
 
 class SplashPage extends ConsumerStatefulWidget {
   const SplashPage({super.key});
@@ -23,44 +24,77 @@ class _SplashPageState extends ConsumerState<SplashPage> {
       _navigated = true;
       final model = next.value!;
       final target = model.shouldShowLatestResult ? '/result' : '/home';
-      // Delay slightly for a smoother transition.
-      Future.microtask(() => context.go(target));
+      Future.microtask(() {
+        if (context.mounted) context.go(target);
+      });
     });
 
-    return const _SplashBody();
-  }
-}
-
-class _SplashBody extends StatelessWidget {
-  const _SplashBody();
-
-  @override
-  Widget build(BuildContext context) {
     return Scaffold(
-      body: Center(
+      backgroundColor: PledgeColors.splashBg,
+      body: SafeArea(
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.directions_run, size: 54, color: Color(0xFF2DD4BF)),
-            const SizedBox(height: 14),
-            Text(
-              'Deposit Steps',
-              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w800,
+            const Spacer(flex: 2),
+            Center(
+              child: Column(
+                children: [
+                  Container(
+                    width: 88,
+                    height: 88,
+                    decoration: BoxDecoration(
+                      color: PledgeColors.primaryGreen,
+                      borderRadius: BorderRadius.circular(22),
+                      boxShadow: [
+                        BoxShadow(
+                          color: PledgeColors.primaryGreen.withValues(alpha: 0.35),
+                          blurRadius: 24,
+                          offset: const Offset(0, 10),
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.show_chart_rounded,
+                      color: Colors.white,
+                      size: 44,
+                    ),
                   ),
+                  const SizedBox(height: 28),
+                  Text(
+                    'PledgeFit',
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.5,
+                        ),
+                  ),
+                  const SizedBox(height: 10),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 48),
+                    child: Text(
+                      'Walk the talk. Stake the walk.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                            color: Colors.white.withValues(alpha: 0.65),
+                            height: 1.35,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Accountability with step-based penalties.',
-              style: Theme.of(context).textTheme.bodySmall,
-              textAlign: TextAlign.center,
+            const Spacer(flex: 2),
+            SizedBox(
+              height: 28,
+              width: 28,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: PledgeColors.primaryGreen.withValues(alpha: 0.9),
+              ),
             ),
-            const SizedBox(height: 26),
-            const CircularProgressIndicator(),
+            const SizedBox(height: 40),
           ],
         ),
       ),
     );
   }
 }
-

@@ -1,5 +1,4 @@
 import '../../core/date_utils.dart';
-import '../../core/id_generator.dart';
 import '../../core/money.dart';
 import '../../data/models/challenge.dart';
 import '../../data/models/daily_entry.dart';
@@ -210,7 +209,7 @@ class ChallengeService {
       final isToday = MvpDateUtils.isSameDate(day, nowDate);
 
       if (isPast) {
-        final hit = entry.steps >= challenge.dailyStepGoal;
+        final hit = entry.steps >= entry.stepGoalForDay;
         final penaltyCents = hit ? 0 : _depositPerDayPenaltyCents(challenge);
         return entry.copyWith(
           evaluationState: DailyEntryEvaluationState.evaluated,
@@ -231,7 +230,7 @@ class ChallengeService {
           );
         }
 
-        final hit = entry.steps >= challenge.dailyStepGoal;
+        final hit = entry.steps >= entry.stepGoalForDay;
         final penaltyCents = hit ? 0 : _depositPerDayPenaltyCents(challenge);
         return entry.copyWith(
           evaluationState: DailyEntryEvaluationState.evaluated,
@@ -316,7 +315,7 @@ class ChallengeService {
         );
       }
 
-      final hit = entry.steps >= active.dailyStepGoal;
+      final hit = entry.steps >= entry.stepGoalForDay;
       final penaltyCents = hit ? 0 : _depositPerDayPenaltyCents(active);
       return entry.copyWith(
         evaluationState: DailyEntryEvaluationState.evaluated,
@@ -356,6 +355,108 @@ class ChallengeService {
     // Update wallet and persist challenge outcome exactly once.
     await _walletService.applyChallengeFinalization(challenge: finalized);
     await _storage.saveLastCompletedChallenge(finalized);
+    await _storage.saveActiveChallenge(null);
+  }
+
+  /// Upward-only edits: duration, total steps, daily steps (today and future days use the new daily goal).
+  Future<Challenge> increaseActiveChallengeGoals({
+    required int newDurationDays,
+    required int newTotalStepGoal,
+    required int newDailyStepGoal,
+    required DateTime now,
+  }) async {
+    final challenge = await loadActiveChallenge();
+    if (challenge == null || challenge.status != ChallengeStatus.active) {
+      throw StateError('No active challenge.');
+    }
+    if (newDurationDays < challenge.durationDays) {
+      throw ArgumentError('Duration can only increase.');
+    }
+    if (newTotalStepGoal < challenge.totalStepGoal) {
+      throw ArgumentError('Total step goal can only increase.');
+    }
+    if (newDailyStepGoal < challenge.dailyStepGoal) {
+      throw ArgumentError('Daily step goal can only increase.');
+    }
+    if (newDailyStepGoal < 5000 || newDailyStepGoal > 10000) {
+      throw ArgumentError.value(
+        newDailyStepGoal,
+        'newDailyStepGoal',
+        'Daily step goal must be between 5000 and 10000.',
+      );
+    }
+    final minTotal = (newDailyStepGoal * newDurationDays * 0.5).ceil();
+    if (newTotalStepGoal < minTotal) {
+      throw ArgumentError(
+        'Total step goal must be at least $minTotal (daily × days × 0.5).',
+      );
+    }
+
+    final nowDate = MvpDateUtils.dateOnly(now);
+    var updated = challenge;
+    final depositDollars = challenge.depositPerDay.cents ~/ 100;
+
+    if (newDurationDays > challenge.durationDays) {
+      final extra = newDurationDays - challenge.durationDays;
+      final newEntries = [...challenge.dailyEntries];
+      for (var i = 0; i < extra; i++) {
+        final date = MvpDateUtils.addDays(challenge.endDate, i + 1);
+        final isToday = MvpDateUtils.isSameDate(date, nowDate);
+        newEntries.add(
+          DailyEntry(
+            date: date,
+            steps: 0,
+            hitDailyGoal: false,
+            stepGoalForDay: newDailyStepGoal,
+            depositAllocatedForDayDollars: depositDollars,
+            dailyPenaltyAmountCents: 0,
+            editable: isToday,
+            evaluationState: DailyEntryEvaluationState.pending,
+            stepsEntered: false,
+          ),
+        );
+      }
+      final extraCents = challenge.depositPerDay.cents * extra;
+      await _walletService.recordAdditionalDepositLock(
+        amount: Money(extraCents),
+        challengeId: challenge.id,
+      );
+      updated = challenge.copyWith(
+        durationDays: newDurationDays,
+        endDate: MvpDateUtils.addDays(challenge.startDate, newDurationDays - 1),
+        totalDeposit: Money(challenge.totalDeposit.cents + extraCents),
+        dailyEntries: newEntries,
+      );
+    }
+
+    final withGoals = updated.copyWith(
+      dailyStepGoal: newDailyStepGoal,
+      totalStepGoal: newTotalStepGoal,
+      durationDays: newDurationDays,
+      dailyEntries: updated.dailyEntries.map((e) {
+        if (!e.date.isBefore(nowDate)) {
+          return e.copyWith(stepGoalForDay: newDailyStepGoal);
+        }
+        return e;
+      }).toList(),
+    );
+
+    final evaluated = await _evaluateActiveChallengeForNow(
+      challenge: withGoals,
+      now: now,
+      persist: false,
+    );
+    await _storage.saveActiveChallenge(evaluated);
+    return evaluated;
+  }
+
+  /// Clears the active challenge after moving refundable funds to forfeited / platform totals.
+  Future<void> restartActiveChallenge() async {
+    final challenge = await loadActiveChallenge();
+    if (challenge == null || challenge.status != ChallengeStatus.active) {
+      throw StateError('No active challenge.');
+    }
+    await _walletService.recordChallengeRestartForfeit(challenge: challenge);
     await _storage.saveActiveChallenge(null);
   }
 }
