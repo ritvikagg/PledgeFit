@@ -33,7 +33,7 @@ class MockSeed {
   static Challenge demoChallenge({
     required DateTime startDate,
     int durationDays = 15,
-    int depositPerDayDollars = 3,
+    int depositPerDayDollars = 1,
     int dailyStepGoal = 7000,
     int totalStepGoal = 7000 * 15,
   }) {

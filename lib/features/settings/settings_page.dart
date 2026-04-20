@@ -1,15 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../app_controller/app_controller.dart';
 import '../../core/theme/pledge_colors.dart';
 import '../../core/ui/kit/pledge_shell.dart';
+import '../../services/auth/auth_controller.dart';
 
 /// Hub for local mock settings. Wire navigation to real auth / APIs later.
-class SettingsPage extends StatelessWidget {
+class SettingsPage extends ConsumerWidget {
   const SettingsPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final session = ref.watch(authControllerProvider).asData?.value;
+
     return PledgePageScaffold(
       title: 'Settings',
       padding: EdgeInsets.zero,
@@ -22,19 +27,23 @@ class SettingsPage extends StatelessWidget {
               _SettingsTile(
                 icon: Icons.person_outline_rounded,
                 label: 'Account details',
-                subtitle: 'Name, username, email',
+                subtitle: session == null
+                    ? 'Name, username, email'
+                    : session.fullName.isNotEmpty
+                        ? session.fullName
+                        : session.email,
                 onTap: () => context.push('/settings/account'),
               ),
             ],
           ),
           const SizedBox(height: 20),
           _SettingsGroup(
-            title: 'Step tracker',
+            title: 'Devices',
             children: [
               _SettingsTile(
                 icon: Icons.watch_later_outlined,
                 label: 'Connected devices',
-                subtitle: 'Apple Health, Google Fit, Fitbit',
+                subtitle: 'Apple Health, Health Connect',
                 onTap: () => context.push('/settings/devices'),
               ),
             ],
@@ -54,6 +63,23 @@ class SettingsPage extends StatelessWidget {
                 label: 'Appeals',
                 subtitle: 'Challenge outcomes & penalties',
                 onTap: () => context.push('/settings/appeals'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          _SettingsGroup(
+            title: 'Session',
+            children: [
+              _SettingsTile(
+                icon: Icons.logout_rounded,
+                label: 'Log out',
+                subtitle: 'Sign out on this device',
+                onTap: () async {
+                  await ref.read(authControllerProvider.notifier).logout();
+                  ref.invalidate(appControllerProvider);
+                  if (!context.mounted) return;
+                  context.go('/welcome');
+                },
               ),
             ],
           ),
@@ -92,7 +118,7 @@ class _SettingsGroup extends StatelessWidget {
           decoration: BoxDecoration(
             color: PledgeColors.card,
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFFF3F4F6)),
+            border: Border.all(color: PledgeColors.cardBorder),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.04),

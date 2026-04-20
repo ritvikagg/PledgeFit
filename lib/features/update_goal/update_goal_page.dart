@@ -1,14 +1,20 @@
+import 'dart:math' show max;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app_controller/app_controller.dart';
+import '../../core/formatters.dart';
 import '../../core/money.dart';
 import '../../core/theme/pledge_colors.dart';
+import '../../core/theme/pledge_product_rules.dart';
+import '../../core/theme/pledge_surfaces.dart';
 import '../../core/ui/kit/numeric_stepper_card.dart';
 import '../../core/ui/kit/pledge_buttons.dart';
 import '../../core/ui/kit/pledge_shell.dart';
 import '../../data/models/challenge.dart';
+import 'goal_confirm_sheet.dart';
 
 /// Set a new goal when none exists, or increase goals / restart when active.
 /// Business rules: [ChallengeService.increaseActiveChallengeGoals], [ChallengeService.restartActiveChallenge].
@@ -20,10 +26,9 @@ class UpdateGoalPage extends ConsumerStatefulWidget {
 }
 
 class _UpdateGoalPageState extends ConsumerState<UpdateGoalPage> {
-  int _durationDays = 15;
-  int _depositPerDayDollars = 3;
+  int _durationDays = PledgeProductRules.minChallengeDays;
+  int _depositPerDayDollars = PledgeProductRules.defaultDepositPerDayDollars;
   int _dailyStepGoal = 8000;
-  int _totalStepGoal = 120000;
   String? _error;
   bool _submitting = false;
   String? _lastChallengeSyncKey;
@@ -31,13 +36,17 @@ class _UpdateGoalPageState extends ConsumerState<UpdateGoalPage> {
   String _challengeSyncKey(Challenge c) =>
       '${c.id}:${c.durationDays}:${c.totalStepGoal}:${c.dailyStepGoal}';
 
-  int get _minTotal => (_dailyStepGoal * _durationDays * 0.5).ceil();
+  /// Total steps for the challenge — derived from daily goal × duration (not a separate input).
+  int get _computedTotalSteps => _dailyStepGoal * _durationDays;
 
-  void _syncTotalIfBelowMin() {
-    if (_totalStepGoal < _minTotal) {
-      _totalStepGoal = _minTotal;
-    }
+  /// Active challenges may carry a legacy total above daily×days; never reduce below that.
+  int _effectiveTotalSteps(Challenge? active) {
+    if (active == null) return _computedTotalSteps;
+    return max(_computedTotalSteps, active.totalStepGoal);
   }
+
+  int get _minTotal =>
+      (_dailyStepGoal * _durationDays * 0.5).ceil(); // mirrors ChallengeService
 
   void _syncFieldsFromProvider(AppModel model) {
     final a = model.activeChallenge;
@@ -48,13 +57,11 @@ class _UpdateGoalPageState extends ConsumerState<UpdateGoalPage> {
       _durationDays = a.durationDays;
       _depositPerDayDollars = a.depositPerDay.cents ~/ 100;
       _dailyStepGoal = a.dailyStepGoal;
-      _totalStepGoal = a.totalStepGoal;
     } else if (_lastChallengeSyncKey != null) {
       _lastChallengeSyncKey = null;
-      _durationDays = 15;
-      _depositPerDayDollars = 3;
+      _durationDays = PledgeProductRules.minChallengeDays;
+      _depositPerDayDollars = PledgeProductRules.defaultDepositPerDayDollars;
       _dailyStepGoal = 8000;
-      _totalStepGoal = 120000;
     }
   }
 
@@ -92,11 +99,9 @@ class _UpdateGoalPageState extends ConsumerState<UpdateGoalPage> {
       if (!context.mounted) return;
       setState(() {
         _lastChallengeSyncKey = null;
-        _durationDays = 15;
-        _depositPerDayDollars = 3;
+        _durationDays = PledgeProductRules.minChallengeDays;
+        _depositPerDayDollars = PledgeProductRules.defaultDepositPerDayDollars;
         _dailyStepGoal = 8000;
-        _totalStepGoal = 120000;
-        _syncTotalIfBelowMin();
       });
       context.go('/home');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -140,17 +145,18 @@ class _UpdateGoalPageState extends ConsumerState<UpdateGoalPage> {
 
     return modelAsync.when(
       loading: () => const Scaffold(
-        backgroundColor: PledgeColors.pageBg,
+        backgroundColor: Colors.transparent,
         body: Center(child: CircularProgressIndicator()),
       ),
       error: (e, _) => Scaffold(
-        backgroundColor: PledgeColors.pageBg,
+        backgroundColor: Colors.transparent,
         body: Center(child: Text('Error: $e')),
       ),
       data: (model) {
         final c = model.activeChallenge;
         final hasActive = c != null;
-        final totalDeposit = Money(_durationDays * _depositPerDayDollars * 100);
+        final totalDeposit =
+            Money(_durationDays * _depositPerDayDollars * 100);
         final penaltyPerMiss =
             Money((Money(_depositPerDayDollars * 100).cents / 5).round());
         final maxPenalty = Money(penaltyPerMiss.cents * _durationDays);
@@ -191,8 +197,8 @@ class _UpdateGoalPageState extends ConsumerState<UpdateGoalPage> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'You can only increase your commitment: longer duration, '
-                          'higher total steps, or a higher daily goal. Reducing goals is not allowed.',
+                          'You can only increase your commitment: more days '
+                          'or a higher daily step goal. Reducing goals is not allowed.',
                           style:
                               Theme.of(context).textTheme.bodySmall?.copyWith(
                                     fontWeight: FontWeight.w600,
@@ -212,9 +218,9 @@ class _UpdateGoalPageState extends ConsumerState<UpdateGoalPage> {
                 const SizedBox(height: 8),
                 Text(
                   '${c.durationDays} days · '
-                  '${c.dailyStepGoal} steps/day · '
-                  '${c.totalStepGoal} total · '
-                  '${c.depositPerDay.format()}/day',
+                  '${formatWithCommas(c.dailyStepGoal)} steps/day · '
+                  '${c.depositPerDay.format()}/day · '
+                  '${formatWithCommas(c.totalStepGoal)} steps total (daily × days)',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -225,24 +231,23 @@ class _UpdateGoalPageState extends ConsumerState<UpdateGoalPage> {
                 label: 'Challenge duration',
                 value: _durationDays,
                 unit: 'days',
-                enabled: !hasActive || _durationDays < 60,
+                enabled: !hasActive ||
+                    _durationDays < PledgeProductRules.maxChallengeDays,
                 onIncrement: () {
-                  if (_durationDays >= 60) return;
-                  setState(() {
-                    _durationDays++;
-                    _syncTotalIfBelowMin();
-                  });
+                  if (_durationDays >= PledgeProductRules.maxChallengeDays) {
+                    return;
+                  }
+                  setState(() => _durationDays++);
                 },
                 onDecrement: () {
                   if (hasActive) {
                     if (_durationDays <= c.durationDays) return;
                   } else {
-                    if (_durationDays <= 15) return;
+                    if (_durationDays <= PledgeProductRules.minChallengeDays) {
+                      return;
+                    }
                   }
-                  setState(() {
-                    _durationDays--;
-                    _syncTotalIfBelowMin();
-                  });
+                  setState(() => _durationDays--);
                 },
               ),
               const SizedBox(height: 14),
@@ -252,11 +257,17 @@ class _UpdateGoalPageState extends ConsumerState<UpdateGoalPage> {
                 unit: 'USD / day',
                 enabled: !hasActive,
                 onIncrement: () {
-                  if (_depositPerDayDollars >= 5) return;
+                  if (_depositPerDayDollars >=
+                      PledgeProductRules.maxDepositPerDayDollars) {
+                    return;
+                  }
                   setState(() => _depositPerDayDollars++);
                 },
                 onDecrement: () {
-                  if (_depositPerDayDollars <= 1) return;
+                  if (_depositPerDayDollars <=
+                      PledgeProductRules.minDepositPerDayDollars) {
+                    return;
+                  }
                   setState(() => _depositPerDayDollars--);
                 },
               ),
@@ -275,71 +286,34 @@ class _UpdateGoalPageState extends ConsumerState<UpdateGoalPage> {
                 label: 'Daily step goal',
                 value: _dailyStepGoal,
                 unit: 'steps',
-                enabled: !hasActive || _dailyStepGoal < 10000,
+                enabled: !hasActive ||
+                    _dailyStepGoal < PledgeProductRules.maxDailySteps,
                 onIncrement: () {
-                  if (_dailyStepGoal >= 10000) return;
+                  if (_dailyStepGoal >= PledgeProductRules.maxDailySteps) return;
                   setState(() {
-                    _dailyStepGoal =
-                        (_dailyStepGoal + 250).clamp(5000, 10000);
-                    _syncTotalIfBelowMin();
-                  });
-                },
-                onDecrement: () {
-                  final floor =
-                      hasActive ? c.dailyStepGoal : 5000;
-                  if (_dailyStepGoal <= floor) return;
-                  setState(() {
-                    _dailyStepGoal =
-                        (_dailyStepGoal - 250).clamp(floor, 10000);
-                    _syncTotalIfBelowMin();
-                  });
-                },
-              ),
-              const SizedBox(height: 14),
-              PledgeNumericStepperCard(
-                label: 'Total step goal',
-                value: _totalStepGoal,
-                unit: 'steps (challenge end)',
-                enabled: true,
-                onIncrement: () {
-                  setState(() {
-                    _totalStepGoal += 1000;
+                    _dailyStepGoal = (_dailyStepGoal + 250).clamp(
+                      PledgeProductRules.minDailySteps,
+                      PledgeProductRules.maxDailySteps,
+                    );
                   });
                 },
                 onDecrement: () {
                   final floor = hasActive
-                      ? c.totalStepGoal
-                      : _minTotal;
+                      ? c.dailyStepGoal
+                      : PledgeProductRules.minDailySteps;
+                  if (_dailyStepGoal <= floor) return;
                   setState(() {
-                    final next = _totalStepGoal - 1000;
-                    _totalStepGoal = next < floor ? floor : next;
+                    _dailyStepGoal = (_dailyStepGoal - 250).clamp(
+                      floor,
+                      PledgeProductRules.maxDailySteps,
+                    );
                   });
                 },
-              ),
-              Padding(
-                padding: const EdgeInsets.only(top: 8, left: 4),
-                child: Text(
-                  'Minimum total: $_minTotal (daily × days × 0.5)',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: PledgeColors.inkMuted,
-                      ),
-                ),
               ),
               const SizedBox(height: 22),
               Container(
                 padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: PledgeColors.card,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFF3F4F6)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.04),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6),
-                    ),
-                  ],
-                ),
+                decoration: PledgeSurfaces.cardElevated(),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -351,10 +325,30 @@ class _UpdateGoalPageState extends ConsumerState<UpdateGoalPage> {
                     ),
                     const SizedBox(height: 16),
                     _SummaryRow(
-                      label: 'Total deposit',
+                      label: 'Steps per day',
+                      value: '${formatWithCommas(_dailyStepGoal)} steps',
+                    ),
+                    _SummaryRow(
+                      label: 'Dollars per day',
+                      value: Money(_depositPerDayDollars * 100).format(),
+                    ),
+                    _SummaryRow(
+                      label: 'Duration',
+                      value: '$_durationDays days',
+                    ),
+                    const Divider(height: 28),
+                    _SummaryRow(
+                      label: 'Total steps',
+                      value:
+                          '${formatWithCommas(hasActive ? _effectiveTotalSteps(c) : _computedTotalSteps)} steps',
+                      strong: true,
+                    ),
+                    _SummaryRow(
+                      label: 'Total money',
                       value: totalDeposit.format(),
                       strong: true,
                     ),
+                    const Divider(height: 28),
                     _SummaryRow(
                       label: 'Daily penalty (if missed)',
                       value: penaltyPerMiss.format(),
@@ -375,10 +369,7 @@ class _UpdateGoalPageState extends ConsumerState<UpdateGoalPage> {
                     const SizedBox(height: 16),
                     Container(
                       padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF3F4F6),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
+                      decoration: PledgeSurfaces.calloutMuted(),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -388,8 +379,8 @@ class _UpdateGoalPageState extends ConsumerState<UpdateGoalPage> {
                           Expanded(
                             child: Text(
                               'You lose 20% of each day\'s deposit when you miss '
-                              'that day\'s step goal. Hit your total step goal by the end '
-                              'to get your remaining balance back.',
+                              'that day\'s step goal. Complete your full step commitment '
+                              '(all days combined) by the end date to get your remaining balance back.',
                               style: Theme.of(context)
                                   .textTheme
                                   .bodySmall
@@ -413,16 +404,20 @@ class _UpdateGoalPageState extends ConsumerState<UpdateGoalPage> {
                   onPressed: () async {
                     setState(() {
                       _error = null;
+                    });
+                    final confirmed = await showGoalConfirmSheet(
+                      context: context,
+                      stepsPerDay: _dailyStepGoal,
+                      dollarsPerDay: _depositPerDayDollars,
+                      numberOfDays: _durationDays,
+                      totalSteps: _computedTotalSteps,
+                      totalMoney: totalDeposit,
+                    );
+                    if (!confirmed || !context.mounted) return;
+
+                    setState(() {
                       _submitting = true;
                     });
-                    if (_totalStepGoal < _minTotal) {
-                      setState(() {
-                        _error =
-                            'Total goal must be at least $_minTotal steps.';
-                        _submitting = false;
-                      });
-                      return;
-                    }
                     try {
                       await ref
                           .read(appControllerProvider.notifier)
@@ -430,7 +425,6 @@ class _UpdateGoalPageState extends ConsumerState<UpdateGoalPage> {
                             durationDays: _durationDays,
                             depositPerDayDollars: _depositPerDayDollars,
                             dailyStepGoal: _dailyStepGoal,
-                            totalStepGoal: _totalStepGoal,
                           );
                       if (!context.mounted) return;
                       context.go('/home');
@@ -457,16 +451,17 @@ class _UpdateGoalPageState extends ConsumerState<UpdateGoalPage> {
                       _error = null;
                       _submitting = true;
                     });
-                    if (_totalStepGoal < _minTotal) {
+                    final newTotalGoal = _effectiveTotalSteps(c);
+                    if (newTotalGoal < _minTotal) {
                       setState(() {
                         _error =
-                            'Total goal must be at least $_minTotal steps.';
+                            'Total steps must be at least $_minTotal (from your daily goal and days).';
                         _submitting = false;
                       });
                       return;
                     }
                     if (_durationDays < c.durationDays ||
-                        _totalStepGoal < c.totalStepGoal ||
+                        newTotalGoal < c.totalStepGoal ||
                         _dailyStepGoal < c.dailyStepGoal) {
                       setState(() {
                         _error = 'Goals can only move upward.';
@@ -475,7 +470,7 @@ class _UpdateGoalPageState extends ConsumerState<UpdateGoalPage> {
                       return;
                     }
                     if (_durationDays == c.durationDays &&
-                        _totalStepGoal == c.totalStepGoal &&
+                        newTotalGoal == c.totalStepGoal &&
                         _dailyStepGoal == c.dailyStepGoal) {
                       setState(() {
                         _error = 'Increase at least one value to update.';
@@ -488,7 +483,7 @@ class _UpdateGoalPageState extends ConsumerState<UpdateGoalPage> {
                           .read(appControllerProvider.notifier)
                           .increaseActiveChallengeGoals(
                             newDurationDays: _durationDays,
-                            newTotalStepGoal: _totalStepGoal,
+                            newTotalStepGoal: newTotalGoal,
                             newDailyStepGoal: _dailyStepGoal,
                           );
                       if (!context.mounted) return;

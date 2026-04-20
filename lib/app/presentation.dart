@@ -13,6 +13,14 @@ final isUiDemoChallengeProvider = Provider<bool>((ref) {
   return app.activeChallenge == null;
 });
 
+/// True when an active challenge needs a successful Health connection to sync steps.
+final needsHealthStepSourceProvider = Provider<bool>((ref) {
+  final app = ref.watch(appControllerProvider).asData?.value;
+  if (app == null) return false;
+  if (app.activeChallenge == null) return false;
+  return !app.connectedDevices.stepSyncConnected;
+});
+
 final displayChallengeProvider = Provider<Challenge?>((ref) {
   final app = ref.watch(appControllerProvider).asData?.value;
   if (app == null) return null;

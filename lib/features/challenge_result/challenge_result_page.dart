@@ -32,21 +32,21 @@ class _ChallengeResultPageState extends ConsumerState<ChallengeResultPage> {
 
     return appState.when(
       loading: () => const Scaffold(
-        backgroundColor: PledgeColors.pageBg,
+        backgroundColor: Colors.transparent,
         body: Center(child: CircularProgressIndicator()),
       ),
       error: (e, _) => Scaffold(
-        backgroundColor: PledgeColors.pageBg,
+        backgroundColor: Colors.transparent,
         body: Center(child: Text('Error: $e')),
       ),
       data: (model) {
         final result = model.lastCompletedChallenge;
         if (result == null) {
           return Scaffold(
-            backgroundColor: PledgeColors.pageBg,
+            backgroundColor: Colors.transparent,
             appBar: AppBar(
               title: const Text('Result'),
-              backgroundColor: PledgeColors.pageBg,
+              backgroundColor: Colors.transparent,
             ),
             body: Center(
               child: Padding(
@@ -66,7 +66,7 @@ class _ChallengeResultPageState extends ConsumerState<ChallengeResultPage> {
             .toDouble();
 
         return Scaffold(
-          backgroundColor: PledgeColors.pageBg,
+          backgroundColor: Colors.transparent,
           body: CustomScrollView(
             slivers: [
               SliverToBoxAdapter(
@@ -107,8 +107,8 @@ class _ChallengeResultPageState extends ConsumerState<ChallengeResultPage> {
                       const SizedBox(height: 8),
                       Text(
                         isSuccess
-                            ? 'You hit your total step goal. Remaining refundable balance returns to your wallet (after daily forfeitures).'
-                            : 'You didn\'t reach the total step goal. Remaining locked stake is kept by the platform.',
+                            ? 'You reached your full step commitment. Remaining refundable balance returns to your wallet (after daily forfeitures).'
+                            : 'You didn\'t reach your cumulative step target. Remaining locked stake is kept by the platform.',
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                               color: PledgeColors.inkMuted,
@@ -137,7 +137,7 @@ class _ChallengeResultPageState extends ConsumerState<ChallengeResultPage> {
                       decoration: BoxDecoration(
                         color: PledgeColors.card,
                         borderRadius: BorderRadius.circular(22),
-                        border: Border.all(color: const Color(0xFFF3F4F6)),
+                        border: Border.all(color: PledgeColors.cardBorder),
                         boxShadow: [
                           BoxShadow(
                             color: Colors.black.withValues(alpha: 0.04),

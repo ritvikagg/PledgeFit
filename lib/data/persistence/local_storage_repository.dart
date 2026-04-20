@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/auth_session.dart';
 import '../models/challenge.dart';
 import '../models/connected_devices_state.dart';
 import '../models/mock_user.dart';
@@ -13,6 +14,13 @@ class LocalStorageRepository {
   final SharedPreferences _prefs;
 
   const LocalStorageRepository(this._prefs);
+
+  Future<bool> isOnboardingCompleted() async =>
+      _prefs.getBool(StorageKeys.onboardingCompleted) ?? false;
+
+  Future<void> setOnboardingCompleted({required bool completed}) async {
+    await _prefs.setBool(StorageKeys.onboardingCompleted, completed);
+  }
 
   Future<MockUser?> loadMockUser() async {
     final raw = _prefs.getString(StorageKeys.mockUser);
@@ -100,6 +108,54 @@ class LocalStorageRepository {
       StorageKeys.connectedDevices,
       json.encode(state.toJson()),
     );
+  }
+
+  Future<AuthSession?> loadAuthSession() async {
+    final raw = _prefs.getString(StorageKeys.authSession);
+    if (raw == null) return null;
+    return AuthSession.fromJson(json.decode(raw) as Map<String, dynamic>);
+  }
+
+  Future<void> saveAuthSession(AuthSession session) async {
+    await _prefs.setString(
+      StorageKeys.authSession,
+      json.encode(session.toJson()),
+    );
+  }
+
+  Future<void> clearAuthSession() async {
+    await _prefs.remove(StorageKeys.authSession);
+  }
+
+  Future<String?> loadGoogleMockUserId() async =>
+      _prefs.getString(StorageKeys.googleMockLinkedUserId);
+
+  Future<void> saveGoogleMockUserId(String id) async {
+    await _prefs.setString(StorageKeys.googleMockLinkedUserId, id);
+  }
+
+  Future<Map<String, dynamic>> loadAuthCredentialRegistry() async {
+    final raw = _prefs.getString(StorageKeys.authCredentialRegistry);
+    if (raw == null) return {};
+    final decoded = json.decode(raw);
+    if (decoded is Map<String, dynamic>) {
+      return Map<String, dynamic>.from(decoded);
+    }
+    return {};
+  }
+
+  Future<void> saveAuthCredentialRegistry(Map<String, dynamic> map) async {
+    await _prefs.setString(
+      StorageKeys.authCredentialRegistry,
+      json.encode(map),
+    );
+  }
+
+  /// Clears wallet and challenge records (e.g. new account on a device that had another user).
+  Future<void> clearFinancialAndChallengeState() async {
+    await saveWallet(Wallet.empty);
+    await saveActiveChallenge(null);
+    await saveLastCompletedChallenge(null);
   }
 }
 

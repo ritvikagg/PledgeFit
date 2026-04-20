@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/presentation.dart';
 import '../../app_controller/app_controller.dart';
+import '../../core/ui/kit/health_sync_widgets.dart';
 import '../../core/date_utils.dart';
 import '../../core/formatters.dart';
 import '../../core/money.dart';
@@ -12,6 +13,8 @@ import '../../core/ui/kit/pledge_buttons.dart';
 import '../../core/ui/kit/pledge_shell.dart';
 import '../../core/ui/kit/status_chip.dart';
 import '../../data/models/daily_entry.dart';
+import '../../services/health/health_sync_providers.dart';
+import '../../services/health/health_sync_ui.dart';
 
 class ChallengeProgressPage extends ConsumerWidget {
   const ChallengeProgressPage({super.key});
@@ -25,11 +28,11 @@ class ChallengeProgressPage extends ConsumerWidget {
 
     return appState.when(
       loading: () => const Scaffold(
-        backgroundColor: PledgeColors.pageBg,
+        backgroundColor: Colors.transparent,
         body: Center(child: CircularProgressIndicator()),
       ),
       error: (e, _) => Scaffold(
-        backgroundColor: PledgeColors.pageBg,
+        backgroundColor: Colors.transparent,
         body: Center(child: Text('Error: $e')),
       ),
       data: (model) {
@@ -71,12 +74,37 @@ class ChallengeProgressPage extends ConsumerWidget {
 
         int runningPenaltyCents = 0;
 
+        final progressBanner = HealthSyncBannerViewModel.forProgress(
+          isDemo: isDemo,
+          hasActiveChallenge: model.activeChallenge != null,
+          devices: model.connectedDevices,
+        );
+
         return PledgePageScaffold(
           title: 'Challenge progress',
           padding: EdgeInsets.zero,
           body: ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
             children: [
+              if (progressBanner != null)
+                HealthSyncBannerCard(
+                  model: progressBanner,
+                  onRetrySync: progressBanner.showRetrySync
+                      ? () async {
+                          await ref
+                              .read(appControllerProvider.notifier)
+                              .syncStepsFromHealth();
+                        }
+                      : null,
+                  onInstallHealthConnect: progressBanner.showInstallHealthConnect
+                      ? () async {
+                          await ref
+                              .read(healthStepDataServiceProvider)
+                              .promptInstallHealthConnect();
+                        }
+                      : null,
+                ),
+              if (progressBanner != null) const SizedBox(height: 12),
               if (isDemo)
                 Container(
                   margin: const EdgeInsets.only(bottom: 12),
@@ -111,7 +139,7 @@ class ChallengeProgressPage extends ConsumerWidget {
                 decoration: BoxDecoration(
                   color: PledgeColors.card,
                   borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: const Color(0xFFF3F4F6)),
+                  border: Border.all(color: PledgeColors.cardBorder),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withValues(alpha: 0.04),
@@ -128,7 +156,7 @@ class ChallengeProgressPage extends ConsumerWidget {
                       child: LinearProgressIndicator(
                         value: totalPct,
                         minHeight: 8,
-                        backgroundColor: const Color(0xFFE5E7EB),
+                        backgroundColor: PledgeColors.progressTrack,
                         color: PledgeColors.primaryGreen,
                       ),
                     ),
@@ -228,7 +256,7 @@ class ChallengeProgressPage extends ConsumerWidget {
                     decoration: BoxDecoration(
                       color: PledgeColors.card,
                       borderRadius: BorderRadius.circular(18),
-                      border: Border.all(color: const Color(0xFFF3F4F6)),
+                      border: Border.all(color: PledgeColors.cardBorder),
                       boxShadow: [
                         BoxShadow(
                           color: Colors.black.withValues(alpha: 0.03),
@@ -245,7 +273,7 @@ class ChallengeProgressPage extends ConsumerWidget {
                           height: 44,
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: const Color(0xFFF3F4F6),
+                            color: PledgeColors.secondaryButtonBg,
                             shape: BoxShape.circle,
                           ),
                           child: Text(

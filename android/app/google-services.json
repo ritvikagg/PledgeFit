@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "192702989184",
+    "project_id": "pledgefit-426b3",
+    "storage_bucket": "pledgefit-426b3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:192702989184:android:9693599601b20f6bfcf765",
+        "android_client_info": {
+          "package_name": "com.pledgefit.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA-R8sB5okB7aCQoH6h_NEj5nUfYrdCOMQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -29,7 +29,7 @@ class PledgeNumericStepperCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: PledgeColors.card,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFF3F4F6)),
+        border: Border.all(color: PledgeColors.cardBorder),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.04),

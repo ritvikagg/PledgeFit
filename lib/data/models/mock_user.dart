@@ -9,6 +9,13 @@ class MockUser {
     required this.lastResultShown,
   });
 
+  /// Placeholder when no user is signed in (router should keep users off main tabs).
+  static final MockUser guest = MockUser(
+    id: 'guest',
+    createdAt: DateTime.utc(1970),
+    lastResultShown: true,
+  );
+
   MockUser copyWith({bool? lastResultShown}) {
     return MockUser(
       id: id,

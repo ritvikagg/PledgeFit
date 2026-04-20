@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app_controller/app_controller.dart';
+import '../../services/auth/auth_controller.dart';
 import '../../core/theme/pledge_colors.dart';
 import '../../core/ui/kit/pledge_buttons.dart';
 import '../../core/ui/kit/pledge_shell.dart';
@@ -46,16 +47,17 @@ class _AccountDetailsPageState extends ConsumerState<AccountDetailsPage> {
 
     return app.when(
       loading: () => const Scaffold(
-        backgroundColor: PledgeColors.pageBg,
+        backgroundColor: Colors.transparent,
         body: Center(child: CircularProgressIndicator()),
       ),
       error: (e, _) => Scaffold(
-        backgroundColor: PledgeColors.pageBg,
+        backgroundColor: Colors.transparent,
         body: Center(child: Text('Error: $e')),
       ),
       data: (model) {
         _hydrateFrom(model);
         final profile = model.profile;
+        final session = ref.watch(authControllerProvider).asData?.value;
 
         return PledgePageScaffold(
           title: 'Account',
@@ -64,6 +66,20 @@ class _AccountDetailsPageState extends ConsumerState<AccountDetailsPage> {
           body: ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
             children: [
+              if (session != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Text(
+                    session.authProvider == 'google'
+                        ? 'Signed in with Google · ${session.email}'
+                        : 'Signed in with email · ${session.email}',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: PledgeColors.inkMuted,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ),
               Center(
                 child: Container(
                   width: 88,

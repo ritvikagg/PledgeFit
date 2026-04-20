@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/models/challenge.dart';
@@ -7,9 +9,12 @@ import '../data/models/mock_user.dart';
 import '../data/models/user_profile.dart';
 import '../data/models/wallet.dart';
 import '../data/persistence/local_storage_repository.dart';
-import '../services/auth/auth_service.dart';
-import '../services/auth/mock_auth_service.dart';
+import '../services/auth/auth_controller.dart';
 import '../services/challenge/challenge_service.dart';
+import '../services/health/health_step_data_service.dart';
+import '../services/health/health_sync_models.dart';
+import '../services/health/health_sync_providers.dart';
+import '../services/health/step_platform.dart';
 import '../services/wallet/wallet_service.dart';
 
 class AppModel {
@@ -28,6 +33,8 @@ class AppModel {
     required this.profile,
     required this.connectedDevices,
   });
+
+  bool get isAuthenticated => user.id != MockUser.guest.id;
 
   bool get shouldShowLatestResult {
     return lastCompletedChallenge != null && !user.lastResultShown;
@@ -59,22 +66,43 @@ class AppModel {
 
 class AppController extends AsyncNotifier<AppModel> {
   late LocalStorageRepository _storage;
-  late AuthService _authService;
   late WalletService _walletService;
   late ChallengeService _challengeService;
+  late HealthStepDataService _healthSteps;
 
   @override
   Future<AppModel> build() async {
+    _healthSteps = ref.read(healthStepDataServiceProvider);
+    final session = await ref.watch(authControllerProvider.future);
+
     final prefs = await SharedPreferences.getInstance();
     _storage = LocalStorageRepository(prefs);
-    _authService = MockAuthService(storage: _storage);
     _walletService = WalletService(storage: _storage);
     _challengeService = ChallengeService(
       storage: _storage,
       walletService: _walletService,
     );
 
-    final user = await _authService.getOrCreateLocalUser();
+    if (session == null) {
+      return AppModel(
+        user: MockUser.guest,
+        wallet: Wallet.empty,
+        activeChallenge: null,
+        lastCompletedChallenge: null,
+        profile: UserProfile.empty,
+        connectedDevices: ConnectedDevicesState.none,
+      );
+    }
+
+    var user = await _storage.loadMockUser();
+    if (user == null || user.id != session.userId) {
+      user = MockUser(
+        id: session.userId,
+        createdAt: DateTime.now(),
+        lastResultShown: true,
+      );
+      await _storage.saveMockUser(user);
+    }
     final profile = await _storage.loadUserProfile();
     final connectedDevices = await _storage.loadConnectedDevices();
     Wallet wallet = await _storage.loadWallet();
@@ -102,7 +130,7 @@ class AppController extends AsyncNotifier<AppModel> {
 
   Future<void> markLastResultShown() async {
     final current = state.value;
-    if (current == null) return;
+    if (current == null || !current.isAuthenticated) return;
     final updatedUser = current.user.copyWith(lastResultShown: true);
     await _storage.saveMockUser(updatedUser);
     state = AsyncValue.data(current.copyWith(user: updatedUser));
@@ -112,18 +140,19 @@ class AppController extends AsyncNotifier<AppModel> {
     required int durationDays,
     required int depositPerDayDollars,
     required int dailyStepGoal,
-    required int totalStepGoal,
   }) async {
     final current = state.value;
     if (current == null) {
       throw StateError('App is not ready.');
+    }
+    if (!current.isAuthenticated) {
+      throw StateError('Sign in to create a challenge.');
     }
 
     final challenge = await _challengeService.createChallenge(
       durationDays: durationDays,
       depositPerDayDollars: depositPerDayDollars,
       dailyStepGoal: dailyStepGoal,
-      totalStepGoal: totalStepGoal,
       now: DateTime.now(),
     );
 
@@ -197,37 +226,132 @@ class AppController extends AsyncNotifier<AppModel> {
     );
   }
 
-  Future<DailyEntryUpdateResult> saveTodaySteps(int steps) async {
+  /// Reads steps from Apple Health / Health Connect and applies them to the
+  /// active challenge. Call after permissions are granted.
+  Future<StepSyncOutcome> syncStepsFromHealth() async {
     final current = state.value;
-    if (current == null || current.activeChallenge == null) {
-      throw StateError('No active challenge.');
+    if (current == null) return StepSyncOutcome.syncFailed;
+
+    if (kIsWeb || !_healthSteps.isSupported) {
+      return StepSyncOutcome.unsupportedPlatform;
     }
-    final now = DateTime.now();
 
-    final updated = await _challengeService.saveDailySteps(
-      challengeId: current.activeChallenge!.id,
-      date: now,
-      steps: steps,
-      now: now,
-    );
+    final challenge = current.activeChallenge;
+    if (challenge == null) {
+      return StepSyncOutcome.noActiveChallenge;
+    }
 
-    // If the user saved on the final day, finalize immediately.
-    await _challengeService.ensureEvaluatedAndFinalizeIfNeeded(now: now);
+    try {
+      await _healthSteps.ensureConfigured();
 
-    final activeChallenge = await _challengeService.loadActiveChallenge();
-    final lastCompletedChallenge =
-        await _challengeService.loadLastCompletedChallenge();
-    final wallet = await _storage.loadWallet();
+      if (isAndroidMobile) {
+        final status = await _healthSteps.getAndroidSdkStatus();
+        final precheck = _healthSteps.outcomeForAndroidPrecheck(status);
+        if (precheck != StepSyncOutcome.success) {
+          await _persistSyncFailure(precheck);
+          return precheck;
+        }
+        final motion = await Permission.activityRecognition.request();
+        if (!motion.isGranted) {
+          await _persistSyncFailure(StepSyncOutcome.activityPermissionDenied);
+          return StepSyncOutcome.activityPermissionDenied;
+        }
+      }
 
-    state = AsyncValue.data(
-      current.copyWith(
-        wallet: wallet,
-        activeChallenge: activeChallenge,
-        lastCompletedChallenge: lastCompletedChallenge,
+      await _healthSteps.ensureHistoryAuthorizationIfNeeded(
+        challengeStart: challenge.startDate,
+        now: DateTime.now(),
+      );
+
+      final authorized = await _healthSteps.requestStepReadAuthorization();
+      if (!authorized) {
+        await _persistSyncFailure(StepSyncOutcome.healthPermissionDenied);
+        return StepSyncOutcome.healthPermissionDenied;
+      }
+
+      final now = DateTime.now();
+      final stepsByDate = await _healthSteps.readTotalStepsForChallengeDays(
+        challengeStart: challenge.startDate,
+        challengeEnd: challenge.endDate,
+        now: now,
+      );
+
+      await _challengeService.applyHealthSyncedSteps(
+        challengeId: challenge.id,
+        stepsByDate: stepsByDate,
+        now: now,
+      );
+
+      await _challengeService.ensureEvaluatedAndFinalizeIfNeeded(now: now);
+
+      final activeChallenge = await _challengeService.loadActiveChallenge();
+      final lastCompletedChallenge =
+          await _challengeService.loadLastCompletedChallenge();
+      final wallet = await _storage.loadWallet();
+
+      final devices = current.connectedDevices.copyWith(
+        stepSyncConnected: true,
+        lastSyncedAt: now,
+        permissionsGranted: true,
+        clearLastSyncError: true,
+      );
+      await _storage.saveConnectedDevices(devices);
+
+      state = AsyncValue.data(
+        current.copyWith(
+          wallet: wallet,
+          activeChallenge: activeChallenge,
+          lastCompletedChallenge: lastCompletedChallenge,
+          connectedDevices: devices,
+        ),
+      );
+
+      return StepSyncOutcome.success;
+    } catch (e, st) {
+      debugPrint('syncStepsFromHealth: $e\n$st');
+      await _persistSyncFailure(StepSyncOutcome.syncFailed);
+      return StepSyncOutcome.syncFailed;
+    }
+  }
+
+  Future<void> _persistSyncFailure(StepSyncOutcome o) async {
+    final current = state.value;
+    if (current == null) return;
+    await saveConnectedDevices(
+      current.connectedDevices.copyWith(
+        lastSyncErrorCode: o.name,
+        stepSyncConnected: o == StepSyncOutcome.healthPermissionDenied
+            ? false
+            : current.connectedDevices.stepSyncConnected,
+        permissionsGranted: o == StepSyncOutcome.healthPermissionDenied
+            ? false
+            : current.connectedDevices.permissionsGranted,
       ),
     );
+  }
 
-    return updated;
+  /// Resyncs when the app returns to the foreground — only if the user already
+  /// completed a successful health connection (avoids spamming permission UI).
+  Future<void> syncStepsFromHealthIfEligible() async {
+    final current = state.value;
+    if (current == null) return;
+    if (kIsWeb) return;
+    if (current.activeChallenge == null) return;
+    if (!current.connectedDevices.stepSyncConnected) return;
+    await syncStepsFromHealth();
+  }
+
+  /// Clears local integration state and revokes Health Connect permissions on Android.
+  Future<void> disconnectHealth() async {
+    if (!kIsWeb && _healthSteps.isSupported) {
+      try {
+        await _healthSteps.ensureConfigured();
+        await _healthSteps.revokeAndroidPermissions();
+      } catch (e, st) {
+        debugPrint('disconnectHealth: $e\n$st');
+      }
+    }
+    await saveConnectedDevices(ConnectedDevicesState.none);
   }
 
   /// Mock-only appeal submit — replace with API call to appeals backend.

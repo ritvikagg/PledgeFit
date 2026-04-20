@@ -2,7 +2,7 @@ import '../../core/money.dart';
 import '../../core/date_utils.dart';
 
 enum DailyEntryEvaluationState {
-  pending, // Not yet evaluated (future days, or today's steps not submitted).
+  pending, // Not yet evaluated (future days, or today's steps not synced yet).
   evaluated, // We have enough info to compute daily hit + penalty.
 }
 

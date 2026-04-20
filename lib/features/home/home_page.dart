@@ -11,43 +11,86 @@ import '../../core/theme/pledge_colors.dart';
 import '../../core/ui/kit/circular_goal_ring.dart';
 import '../../core/ui/kit/metric_tile.dart';
 import '../../core/ui/kit/pledge_buttons.dart';
+import '../../core/ui/kit/health_sync_widgets.dart';
 import '../../data/models/challenge.dart';
 import '../../data/models/daily_entry.dart';
 import '../../data/models/wallet.dart';
+import '../../services/health/health_sync_copy.dart';
+import '../../services/health/health_sync_providers.dart';
+import '../../services/health/health_sync_ui.dart';
+import '../../services/health/step_platform.dart';
 
-class HomePage extends ConsumerWidget {
+class HomePage extends ConsumerStatefulWidget {
   const HomePage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends ConsumerState<HomePage> {
+  @override
+  Widget build(BuildContext context) {
     final appState = ref.watch(appControllerProvider);
     final displayChallenge = ref.watch(displayChallengeProvider);
     final displayWallet = ref.watch(displayWalletProvider);
     final isDemo = ref.watch(isUiDemoChallengeProvider);
+    final needsHealth = ref.watch(needsHealthStepSourceProvider);
 
     return appState.when(
       loading: () => const Scaffold(
-        backgroundColor: PledgeColors.pageBg,
+        backgroundColor: Colors.transparent,
         body: Center(child: CircularProgressIndicator()),
       ),
       error: (e, _) => Scaffold(
-        backgroundColor: PledgeColors.pageBg,
+        backgroundColor: Colors.transparent,
         body: Center(child: Text('Error: $e')),
       ),
       data: (model) {
         final nowDate = MvpDateUtils.dateOnly(DateTime.now());
 
         if (displayChallenge == null) {
+          final strip = HealthSyncBannerViewModel.stripForNoActiveChallenge(
+            isDemo: isDemo,
+            devices: model.connectedDevices,
+          );
           return _EmptyHome(
             onCreate: () => context.go('/goal'),
+            onConnectHealth: () => context.push('/daily'),
+            healthStrip: strip,
           );
         }
 
-        return _HomeBody(
-          challenge: displayChallenge,
-          wallet: displayWallet,
-          nowDate: nowDate,
+        final healthBanner = HealthSyncBannerViewModel.primaryForActiveChallenge(
           isDemo: isDemo,
+          devices: model.connectedDevices,
+          challenge: displayChallenge,
+          nowDate: nowDate,
+        );
+
+        return RefreshIndicator(
+          color: PledgeColors.primaryGreen,
+          onRefresh: () async {
+            if (isDemo) return;
+            await ref.read(appControllerProvider.notifier).syncStepsFromHealth();
+          },
+          child: _HomeBody(
+            challenge: displayChallenge,
+            wallet: displayWallet,
+            nowDate: nowDate,
+            isDemo: isDemo,
+            needsHealthConnection: needsHealth,
+            lastSyncedAt: model.connectedDevices.lastSyncedAt,
+            stepSyncConnected: model.connectedDevices.stepSyncConnected,
+            healthBanner: healthBanner,
+            onHealthRetry: () async {
+              await ref.read(appControllerProvider.notifier).syncStepsFromHealth();
+            },
+            onInstallHealthConnect: () async {
+              await ref
+                  .read(healthStepDataServiceProvider)
+                  .promptInstallHealthConnect();
+            },
+          ),
         );
       },
     );
@@ -55,14 +98,20 @@ class HomePage extends ConsumerWidget {
 }
 
 class _EmptyHome extends StatelessWidget {
-  const _EmptyHome({required this.onCreate});
+  const _EmptyHome({
+    required this.onCreate,
+    required this.onConnectHealth,
+    this.healthStrip,
+  });
 
   final VoidCallback onCreate;
+  final VoidCallback onConnectHealth;
+  final HealthSyncBannerViewModel? healthStrip;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: PledgeColors.pageBg,
+      backgroundColor: Colors.transparent,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -71,7 +120,7 @@ class _EmptyHome extends StatelessWidget {
             children: [
               const SizedBox(height: 48),
               Text(
-                'No active goal yet',
+                HealthSyncCopy.emptyHomeTitle,
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                       fontWeight: FontWeight.w800,
                       color: PledgeColors.ink,
@@ -79,13 +128,31 @@ class _EmptyHome extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               Text(
-                'Lock a mock deposit, set your step targets, and earn it back by hitting your total goal. Miss a daily target and part of that day’s stake is forfeited.',
+                HealthSyncCopy.emptyHomeBody,
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                       color: PledgeColors.inkMuted,
                       height: 1.45,
                     ),
               ),
+              if (healthStrip != null) ...[
+                const SizedBox(height: 18),
+                HealthSyncBannerCard(
+                  model: healthStrip!,
+                  compact: true,
+                  onRetrySync: healthStrip!.showRetrySync ? onConnectHealth : null,
+                  onInstallHealthConnect: healthStrip!.showInstallHealthConnect
+                      ? onConnectHealth
+                      : null,
+                ),
+              ],
               const Spacer(),
+              if (healthStrip?.kind == HealthSyncBannerKind.connectRequired) ...[
+                PledgeSecondaryButton(
+                  label: connectHealthCtaLabel(),
+                  onPressed: onConnectHealth,
+                ),
+                const SizedBox(height: 12),
+              ],
               PledgePrimaryButton(
                 label: 'Set your first goal',
                 icon: Icons.flag_rounded,
@@ -106,12 +173,24 @@ class _HomeBody extends StatelessWidget {
     required this.wallet,
     required this.nowDate,
     required this.isDemo,
+    required this.needsHealthConnection,
+    required this.lastSyncedAt,
+    required this.stepSyncConnected,
+    this.healthBanner,
+    this.onHealthRetry,
+    this.onInstallHealthConnect,
   });
 
   final Challenge challenge;
   final Wallet wallet;
   final DateTime nowDate;
   final bool isDemo;
+  final bool needsHealthConnection;
+  final DateTime? lastSyncedAt;
+  final bool stepSyncConnected;
+  final HealthSyncBannerViewModel? healthBanner;
+  final Future<void> Function()? onHealthRetry;
+  final Future<void> Function()? onInstallHealthConnect;
 
   @override
   Widget build(BuildContext context) {
@@ -143,12 +222,37 @@ class _HomeBody extends StatelessWidget {
     final penaltyPerMiss =
         challenge.depositPerDay.cents ~/ 5; // 20% of daily deposit (cents)
 
+    final showHeaderLastSync = healthBanner == null &&
+        !isDemo &&
+        stepSyncConnected &&
+        lastSyncedAt != null;
+
     return Scaffold(
-      backgroundColor: PledgeColors.pageBg,
+      backgroundColor: Colors.transparent,
       body: SafeArea(
         child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
           children: [
+            if (!isDemo && healthBanner != null)
+              HealthSyncBannerCard(
+                model: healthBanner!,
+                onRetrySync: healthBanner!.showRetrySync
+                    ? () async => onHealthRetry?.call()
+                    : null,
+                onInstallHealthConnect: healthBanner!.showInstallHealthConnect
+                    ? () async => onInstallHealthConnect?.call()
+                    : null,
+              ),
+            if (!isDemo &&
+                needsHealthConnection &&
+                healthBanner?.kind == HealthSyncBannerKind.connectRequired)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: HealthSyncConnectCta(
+                  onPressed: () => context.push('/daily'),
+                ),
+              ),
             if (isDemo)
               Container(
                 margin: const EdgeInsets.only(bottom: 14),
@@ -201,6 +305,16 @@ class _HomeBody extends StatelessWidget {
                                   color: PledgeColors.ink,
                                 ),
                       ),
+                      if (showHeaderLastSync) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          'Last synced ${_formatShortTime(lastSyncedAt!)}',
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                color: PledgeColors.inkMuted,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -273,7 +387,7 @@ class _HomeBody extends StatelessWidget {
               decoration: BoxDecoration(
                 color: PledgeColors.card,
                 borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFFF3F4F6)),
+                border: Border.all(color: PledgeColors.cardBorder),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.04),
@@ -303,13 +417,23 @@ class _HomeBody extends StatelessWidget {
                       ),
                     ],
                   ),
+                  if (!isDemo && needsHealthConnection) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Steps appear after you connect ${healthProviderDisplayName()}.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: PledgeColors.penaltyAmber,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ],
                   const SizedBox(height: 14),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(999),
                     child: LinearProgressIndicator(
                       value: dailyPct,
                       minHeight: 10,
-                      backgroundColor: const Color(0xFFE5E7EB),
+                      backgroundColor: PledgeColors.progressTrack,
                       color: PledgeColors.primaryGreen,
                     ),
                   ),
@@ -368,9 +492,15 @@ class _HomeBody extends StatelessWidget {
             ),
             const SizedBox(height: 22),
             PledgePrimaryButton(
-              label: todaysEntry.editable ? 'Enter Today\'s Steps' : 'View progress',
+              label: !isDemo && needsHealthConnection
+                  ? connectHealthCtaLabel()
+                  : (todaysEntry.editable ? 'Sync steps' : 'View progress'),
               icon: Icons.directions_walk_rounded,
               onPressed: () {
+                if (!isDemo && needsHealthConnection) {
+                  context.push('/daily');
+                  return;
+                }
                 if (todaysEntry.editable) {
                   context.push('/daily');
                 } else {
@@ -382,5 +512,12 @@ class _HomeBody extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _formatShortTime(DateTime d) {
+    final h = d.hour == 0 ? 12 : (d.hour > 12 ? d.hour - 12 : d.hour);
+    final m = d.minute.toString().padLeft(2, '0');
+    final sfx = d.hour >= 12 ? 'PM' : 'AM';
+    return '${formatMonthDay(d)} $h:$m $sfx';
   }
 }

@@ -2,10 +2,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'root_navigator.dart';
+import 'router_refresh.dart';
+import '../features/auth/login_page.dart';
+import '../features/auth/signup_page.dart';
+import '../features/auth/welcome_page.dart';
+import '../features/onboarding/onboarding_page.dart';
 import '../features/splash/splash_page.dart';
 import '../features/home/home_page.dart';
 import '../features/update_goal/update_goal_page.dart';
-import '../features/daily_entry/daily_entry_page.dart';
+import '../features/daily_entry/step_sync_page.dart';
 import '../features/progress/challenge_progress_page.dart';
 import '../features/wallet/wallet_page.dart';
 import '../features/challenge_result/challenge_result_page.dart';
@@ -14,17 +19,70 @@ import '../features/settings/account_details_page.dart';
 import '../features/settings/connected_devices_page.dart';
 import '../features/settings/help_support_page.dart';
 import '../features/settings/appeals_page.dart';
+import '../services/auth/auth_controller.dart';
 import '../core/ui/kit/pledge_shell.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
+  final refresh = GoRouterRefreshNotifier(ref);
+  ref.onDispose(refresh.dispose);
+
   return GoRouter(
     navigatorKey: rootNavigatorKey,
     initialLocation: '/',
+    refreshListenable: refresh,
+    redirect: (context, state) {
+      final auth = ref.read(authControllerProvider);
+      final loc = state.matchedLocation;
+      if (loc == '/') {
+        return null;
+      }
+      if (auth.isLoading) {
+        return null;
+      }
+      final session = auth.asData?.value;
+      const publicUnauthenticatedRoutes = {
+        '/welcome',
+        '/login',
+        '/signup',
+        '/onboarding',
+      };
+      final onPublicUnauthRoute = publicUnauthenticatedRoutes.contains(loc);
+      if (session == null && !onPublicUnauthRoute) {
+        return '/welcome';
+      }
+      if (session != null && onPublicUnauthRoute) {
+        return '/home';
+      }
+      return null;
+    },
     routes: [
       GoRoute(
         path: '/',
         name: 'splash',
         builder: (context, state) => const SplashPage(),
+      ),
+      GoRoute(
+        path: '/onboarding',
+        name: 'onboarding',
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) => const OnboardingPage(),
+      ),
+      GoRoute(
+        path: '/welcome',
+        name: 'welcome',
+        builder: (context, state) => const WelcomePage(),
+      ),
+      GoRoute(
+        path: '/login',
+        name: 'login',
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) => const LoginPage(),
+      ),
+      GoRoute(
+        path: '/signup',
+        name: 'signup',
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) => const SignUpPage(),
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) {
@@ -104,7 +162,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/daily',
         name: 'dailyEntry',
         parentNavigatorKey: rootNavigatorKey,
-        builder: (context, state) => const DailyEntryPage(),
+        builder: (context, state) => const StepSyncPage(),
       ),
       GoRoute(
         path: '/result',

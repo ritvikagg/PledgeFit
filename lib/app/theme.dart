@@ -7,7 +7,8 @@ ThemeData buildPledgeTheme() {
   final base = ThemeData(
     useMaterial3: true,
     brightness: Brightness.light,
-    scaffoldBackgroundColor: PledgeColors.pageBg,
+    scaffoldBackgroundColor: Colors.transparent,
+    canvasColor: PledgeColors.pageBg,
     colorScheme: ColorScheme.light(
       primary: PledgeColors.primaryGreen,
       onPrimary: Colors.white,
@@ -32,7 +33,7 @@ ThemeData buildPledgeTheme() {
       elevation: 0,
       scrolledUnderElevation: 0,
       centerTitle: true,
-      backgroundColor: PledgeColors.pageBg,
+      backgroundColor: Colors.transparent,
       foregroundColor: PledgeColors.ink,
       titleTextStyle: textTheme.titleLarge?.copyWith(
         fontWeight: FontWeight.w700,
@@ -45,7 +46,7 @@ ThemeData buildPledgeTheme() {
       shadowColor: Colors.black.withValues(alpha: 0.06),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(20),
-        side: const BorderSide(color: Color(0xFFF3F4F6)),
+        side: const BorderSide(color: PledgeColors.cardBorder),
       ),
     ),
     filledButtonTheme: FilledButtonThemeData(

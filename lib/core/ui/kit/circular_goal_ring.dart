@@ -36,7 +36,7 @@ class CircularGoalRing extends StatelessWidget {
               progress: p,
               strokeWidth: strokeWidth,
               activeColor: PledgeColors.primaryGreen,
-              trackColor: const Color(0xFFE5E7EB),
+              trackColor: PledgeColors.progressTrack,
             ),
           ),
           Column(

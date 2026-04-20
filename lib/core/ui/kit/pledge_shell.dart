@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../theme/pledge_colors.dart';
-
 class PledgeMainShell extends StatelessWidget {
   const PledgeMainShell({
     super.key,
@@ -14,6 +12,7 @@ class PledgeMainShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.transparent,
       body: navigationShell,
       bottomNavigationBar: NavigationBar(
         selectedIndex: navigationShell.currentIndex,
@@ -109,7 +108,7 @@ class PledgePageScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: PledgeColors.pageBg,
+      backgroundColor: Colors.transparent,
       appBar: PledgeAppBar(
         title: title,
         showBack: showBack,

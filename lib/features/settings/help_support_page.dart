@@ -4,20 +4,26 @@ import 'package:flutter/services.dart';
 import '../../core/theme/pledge_colors.dart';
 import '../../core/ui/kit/pledge_buttons.dart';
 import '../../core/ui/kit/pledge_shell.dart';
+import '../../services/health/health_sync_copy.dart';
 
 /// FAQ and contact — wire mailto / ticketing API later.
 class HelpSupportPage extends StatelessWidget {
   const HelpSupportPage({super.key});
 
   static final _faqs = <(String, String)>[
+    (HealthSyncCopy.faqWhyHealthTitle, HealthSyncCopy.faqWhyHealthBody),
+    (HealthSyncCopy.faqPermissionsTitle, HealthSyncCopy.faqPermissionsBody),
+    (HealthSyncCopy.faqDisconnectTitle, HealthSyncCopy.faqDisconnectBody),
+    (HealthSyncCopy.faqNotShowingTitle, HealthSyncCopy.faqNotShowingBody),
+    (HealthSyncCopy.faqHowOftenTitle, HealthSyncCopy.faqHowOftenBody),
     (
       'How do penalties work?',
       'If you miss a daily step goal, 20% of that day’s deposit is forfeited. '
-          'Hitting your total step goal by the end date returns what’s left of your stake.',
+          'Reaching your cumulative step target by the end date returns what’s left of your stake.',
     ),
     (
       'Can I lower my goal mid-challenge?',
-      'No. You can only increase duration, total steps, or daily steps while a goal is active.',
+      'No. You can only increase how many days you’re running or your daily step goal while active.',
     ),
     (
       'What happens if I restart?',
@@ -38,6 +44,20 @@ class HelpSupportPage extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
         children: [
           Text(
+            '${HealthSyncCopy.appName} · Help',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Questions about step sync, challenges, and your account.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: PledgeColors.inkMuted,
+                ),
+          ),
+          const SizedBox(height: 16),
+          Text(
             'FAQ',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w800,
@@ -51,11 +71,11 @@ class HelpSupportPage extends StatelessWidget {
                 tilePadding: EdgeInsets.zero,
                 collapsedShape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
-                  side: const BorderSide(color: Color(0xFFF3F4F6)),
+                  side: const BorderSide(color: PledgeColors.cardBorder),
                 ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(14),
-                  side: const BorderSide(color: Color(0xFFF3F4F6)),
+                  side: const BorderSide(color: PledgeColors.cardBorder),
                 ),
                 backgroundColor: PledgeColors.card,
                 collapsedBackgroundColor: PledgeColors.card,
@@ -112,8 +132,9 @@ class HelpSupportPage extends StatelessWidget {
             detail: 'Copies email + subject suggestion',
             onTap: () async {
               await Clipboard.setData(
-                const ClipboardData(
-                  text: '$_supportEmail\nSubject: StepStake bug report\n\nDescribe what happened:',
+                ClipboardData(
+                  text:
+                      '$_supportEmail\nSubject: ${HealthSyncCopy.appName} bug report\n\nDescribe what happened:',
                 ),
               );
               if (!context.mounted) return;

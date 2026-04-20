@@ -29,7 +29,7 @@ class PledgeStatusChip extends StatelessWidget {
         fg = PledgeColors.dangerRose;
         break;
       case PledgeChipVariant.neutral:
-        bg = const Color(0xFFF3F4F6);
+        bg = PledgeColors.secondaryButtonBg;
         fg = PledgeColors.inkMuted;
         break;
     }

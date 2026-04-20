@@ -19,11 +19,11 @@ class WalletPage extends ConsumerWidget {
 
     return appState.when(
       loading: () => const Scaffold(
-        backgroundColor: PledgeColors.pageBg,
+        backgroundColor: Colors.transparent,
         body: Center(child: CircularProgressIndicator()),
       ),
       error: (e, _) => Scaffold(
-        backgroundColor: PledgeColors.pageBg,
+        backgroundColor: Colors.transparent,
         body: Center(child: Text('Error: $e')),
       ),
       data: (_) {
@@ -54,7 +54,7 @@ class WalletPage extends ConsumerWidget {
                 decoration: BoxDecoration(
                   color: PledgeColors.card,
                   borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: const Color(0xFFF3F4F6)),
+                  border: Border.all(color: PledgeColors.cardBorder),
                   boxShadow: [
                     BoxShadow(
                       color: Colors.black.withValues(alpha: 0.05),
@@ -140,7 +140,7 @@ class WalletPage extends ConsumerWidget {
                   decoration: BoxDecoration(
                     color: PledgeColors.card,
                     borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFFF3F4F6)),
+                    border: Border.all(color: PledgeColors.cardBorder),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withValues(alpha: 0.03),
@@ -188,7 +188,7 @@ class _SmallMetric extends StatelessWidget {
       decoration: BoxDecoration(
         color: PledgeColors.card,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFF3F4F6)),
+        border: Border.all(color: PledgeColors.cardBorder),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.03),

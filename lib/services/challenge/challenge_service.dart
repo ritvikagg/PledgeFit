@@ -1,19 +1,10 @@
 import '../../core/date_utils.dart';
 import '../../core/money.dart';
+import '../../core/theme/pledge_product_rules.dart';
 import '../../data/models/challenge.dart';
 import '../../data/models/daily_entry.dart';
 import '../../data/persistence/local_storage_repository.dart';
 import '../wallet/wallet_service.dart';
-
-class DailyEntryUpdateResult {
-  final DailyEntry previousEntry;
-  final DailyEntry updatedEntry;
-
-  const DailyEntryUpdateResult({
-    required this.previousEntry,
-    required this.updatedEntry,
-  });
-}
 
 class ChallengeService {
   final LocalStorageRepository _storage;
@@ -38,7 +29,6 @@ class ChallengeService {
     required int durationDays,
     required int depositPerDayDollars,
     required int dailyStepGoal,
-    required int totalStepGoal,
     required DateTime now,
   }) async {
     final active = await loadActiveChallenge();
@@ -46,31 +36,34 @@ class ChallengeService {
       throw StateError('An active challenge already exists.');
     }
 
-    if (durationDays < 15) {
-      throw ArgumentError.value(durationDays, 'durationDays', 'Minimum is 15.');
+    if (durationDays < PledgeProductRules.minChallengeDays) {
+      throw ArgumentError.value(
+        durationDays,
+        'durationDays',
+        'Minimum is ${PledgeProductRules.minChallengeDays}.',
+      );
     }
-    if (depositPerDayDollars < 1 || depositPerDayDollars > 5) {
+    if (depositPerDayDollars < PledgeProductRules.minDepositPerDayDollars ||
+        depositPerDayDollars > PledgeProductRules.maxDepositPerDayDollars) {
       throw ArgumentError.value(
         depositPerDayDollars,
         'depositPerDayDollars',
-        'Deposit per day must be between \$1 and \$5.',
+        'Deposit per day must be between '
+        '\$${PledgeProductRules.minDepositPerDayDollars} and '
+        '\$${PledgeProductRules.maxDepositPerDayDollars}.',
       );
     }
-    if (dailyStepGoal < 5000 || dailyStepGoal > 10000) {
+    if (dailyStepGoal < PledgeProductRules.minDailySteps ||
+        dailyStepGoal > PledgeProductRules.maxDailySteps) {
       throw ArgumentError.value(
         dailyStepGoal,
         'dailyStepGoal',
-        'Daily step goal must be between 5000 and 10000.',
+        'Daily step goal must be between '
+        '${PledgeProductRules.minDailySteps} and ${PledgeProductRules.maxDailySteps}.',
       );
     }
-    final minTotalStepGoal = (dailyStepGoal * durationDays * 0.5).ceil();
-    if (totalStepGoal < minTotalStepGoal) {
-      throw ArgumentError.value(
-        totalStepGoal,
-        'totalStepGoal',
-        'Total step goal must be at least $minTotalStepGoal (daily goal × days × 0.5).',
-      );
-    }
+
+    final totalStepGoal = dailyStepGoal * durationDays;
 
     final challenge = Challenge.buildNew(
       now: now,
@@ -86,10 +79,11 @@ class ChallengeService {
     return challenge;
   }
 
-  Future<DailyEntryUpdateResult> saveDailySteps({
+  /// Applies step totals from Apple Health / Health Connect for all challenge
+  /// days up to and including [now].
+  Future<void> applyHealthSyncedSteps({
     required String challengeId,
-    required DateTime date,
-    required int steps,
+    required Map<DateTime, int> stepsByDate,
     required DateTime now,
   }) async {
     final challenge = await loadActiveChallenge();
@@ -101,56 +95,29 @@ class ChallengeService {
     }
 
     final nowDate = MvpDateUtils.dateOnly(now);
-    final entryDate = MvpDateUtils.dateOnly(date);
-    if (!MvpDateUtils.isSameDate(entryDate, nowDate)) {
-      throw ArgumentError.value(
-        date,
-        'date',
-        'You can only edit today\'s entry.',
-      );
-    }
-    if (entryDate.isBefore(challenge.startDate) ||
-        entryDate.isAfter(challenge.endDate)) {
-      throw ArgumentError.value(date, 'date', 'Date is outside the challenge.');
+    final normalized = <DateTime, int>{};
+    for (final e in stepsByDate.entries) {
+      normalized[MvpDateUtils.dateOnly(e.key)] =
+          e.value.clamp(0, 2000000);
     }
 
-    // Ensure evaluation flags/lock state are up to date for today's edit.
+    final updatedEntries = challenge.dailyEntries.map((entry) {
+      final day = MvpDateUtils.dateOnly(entry.date);
+      if (day.isAfter(nowDate)) return entry;
+      final steps = normalized[day];
+      if (steps == null) return entry;
+      return entry.copyWith(
+        steps: steps,
+        stepsEntered: true,
+      );
+    }).toList();
+
     final evaluated = await _evaluateActiveChallengeForNow(
-      challenge: challenge,
+      challenge: challenge.copyWith(dailyEntries: updatedEntries),
       now: now,
       persist: false,
     );
-
-    final index =
-        evaluated.dailyEntries.indexWhere(
-          (e) => MvpDateUtils.isSameDate(e.date, entryDate),
-        );
-    if (index == -1) {
-      throw StateError('Daily entry not found.');
-    }
-    final previousEntry = evaluated.dailyEntries[index];
-
-    if (!previousEntry.editable) {
-      throw StateError('Today\'s entry is locked.');
-    }
-
-    final updatedEntry = previousEntry.copyWith(
-      steps: steps,
-      stepsEntered: true,
-      // hitDailyGoal/penalty/evaluationState will be recomputed below.
-    );
-
-    final updatedChallengeDailyEntries = [...evaluated.dailyEntries];
-    updatedChallengeDailyEntries[index] = updatedEntry;
-
-    final recomputedChallenge = await _recomputeTotalsAndEvaluateDailyEntries(
-      challenge: evaluated.copyWith(dailyEntries: updatedChallengeDailyEntries),
-      now: now,
-    );
-
-    await _storage.saveActiveChallenge(recomputedChallenge);
-
-    return DailyEntryUpdateResult(previousEntry: previousEntry, updatedEntry: recomputedChallenge.dailyEntries[index]);
+    await _storage.saveActiveChallenge(evaluated);
   }
 
   /// Ensures the active challenge is evaluated for the provided `now` date,
@@ -221,7 +188,7 @@ class ChallengeService {
 
       if (isToday) {
         if (!entry.stepsEntered) {
-          // Pending until user submits today's steps.
+          // Pending until today's steps are synced from health.
           return entry.copyWith(
             evaluationState: DailyEntryEvaluationState.pending,
             hitDailyGoal: false,
@@ -281,19 +248,6 @@ class ChallengeService {
     // Penalty = 20% of that day's deposit allocation.
     // depositPerDay is stored as cents (whole-dollar -> cents multiple of 100).
     return (challenge.depositPerDay.cents / 5).round();
-  }
-
-  Future<Challenge> _recomputeTotalsAndEvaluateDailyEntries({
-    required Challenge challenge,
-    required DateTime now,
-  }) async {
-    // For MVP: totals always depend on evaluation rules for "active" challenges.
-    final evaluated = await _evaluateActiveChallengeForNow(
-      challenge: challenge,
-      now: now,
-      persist: false,
-    );
-    return evaluated;
   }
 
   Future<void> _finalizeChallenge({
@@ -378,11 +332,13 @@ class ChallengeService {
     if (newDailyStepGoal < challenge.dailyStepGoal) {
       throw ArgumentError('Daily step goal can only increase.');
     }
-    if (newDailyStepGoal < 5000 || newDailyStepGoal > 10000) {
+    if (newDailyStepGoal < PledgeProductRules.minDailySteps ||
+        newDailyStepGoal > PledgeProductRules.maxDailySteps) {
       throw ArgumentError.value(
         newDailyStepGoal,
         'newDailyStepGoal',
-        'Daily step goal must be between 5000 and 10000.',
+        'Daily step goal must be between '
+        '${PledgeProductRules.minDailySteps} and ${PledgeProductRules.maxDailySteps}.',
       );
     }
     final minTotal = (newDailyStepGoal * newDurationDays * 0.5).ceil();
